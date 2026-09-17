@@ -418,7 +418,9 @@ class MinimapView {
 		if (!this.scale) return;
 		// Comme au clic gauche : une bulle vise son paragraphe, où qu'elle ait été décalée.
 		const bubble = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble") : null;
-		const pos = bubble ? Number(bubble.dataset.pos) : this.posAtY(event.clientY);
+		// Le début du bloc, et non la position proportionnelle d'un glissement : la corne doit se poser
+		// sur le paragraphe de la bande visée, même si ce bloc replie plusieurs lignes.
+		const pos = bubble ? Number(bubble.dataset.pos) : this.blockAtY(event.clientY).block.from;
 		const block = paragraphAt(this.view.state, pos);
 		if (block) toggleCorner(this.view, block);
 	};
@@ -530,16 +532,23 @@ class MinimapView {
 	}
 
 	/**
-	 * Endroit de la note qui se trouve sous le pointeur, à la hauteur `clientY`. La position visée est
-	 * proportionnelle dans le bloc plutôt qu'à son début : le texte défile ainsi continûment sous le
-	 * pointeur pendant un glissement.
+	 * Bloc de hauteur de CM6 sous le pointeur, à la hauteur `clientY` : ce que la bande dessinée là
+	 * représente. C'est une ligne à l'écran, ou plusieurs quand du texte y est replié.
 	 */
-	private posAtY(clientY: number): number {
+	private blockAtY(clientY: number) {
 		const { view } = this;
 		const docHeight = view.lineBlockAt(view.state.doc.length).bottom;
 		const y = (clientY - this.canvas.getBoundingClientRect().top) / this.scale;
 		const height = Math.min(docHeight, Math.max(0, y));
-		const block = view.lineBlockAtHeight(height);
+		return { block: view.lineBlockAtHeight(height), height };
+	}
+
+	/**
+	 * Endroit de la note qui se trouve sous le pointeur. La position visée est proportionnelle dans le
+	 * bloc plutôt qu'à son début : le texte défile ainsi continûment sous le pointeur pendant un glissement.
+	 */
+	private posAtY(clientY: number): number {
+		const { block, height } = this.blockAtY(clientY);
 		const fraction = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
 		return block.from + Math.round(fraction * (block.to - block.from));
 	}
