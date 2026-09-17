@@ -4,6 +4,7 @@ import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { refreshMarkersEffect } from "./model";
 import { allParagraphs, frontmatterLastLine, paragraphAt, textStart, type ParagraphBlock } from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
+import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
 import type { TagDecorations } from "./gutter";
 import type MarginalNotesPlugin from "./main";
@@ -433,8 +434,13 @@ class MinimapView {
 		this.flash(block);
 	}
 
-	/** Fait clignoter un paragraphe des deux côtés : sa bande dans la minipage, son texte dans l'éditeur. */
+	/**
+	 * Fait clignoter un paragraphe des deux côtés — sa bande dans la minipage, son texte dans l'éditeur
+	 * — et le retient comme paragraphe centré : tous ceux qui appellent cette méthode viennent d'y mener
+	 * la vue, et un clic dedans n'aura donc pas à l'y ramener.
+	 */
 	private flash(block: ParagraphBlock) {
+		rememberCentred(this.view, block.from);
 		this.flashed = { from: block.from, to: block.to };
 		window.clearTimeout(this.flashTimer);
 		this.flashTimer = window.setTimeout(() => (this.flashed = null), FLASH_DURATION_MS);

@@ -7,6 +7,21 @@ import { flashParagraph } from "./flash";
 const CLICK_SLOP = 4;
 
 /**
+ * Paragraphe sur lequel la vue a été centrée en dernier, dans chaque éditeur. Seul un centrage sur
+ * un autre paragraphe l'efface : surtout pas un défilement, pour qu'on puisse partir voir ailleurs
+ * puis revenir travailler dans celui-là sans que la vue saute quand on y repose le curseur.
+ */
+const centred = new WeakMap<EditorView, number>();
+
+/**
+ * Retient le paragraphe sur lequel la vue vient d'être centrée, d'où que vienne le centrage : la
+ * minipage y mène autant qu'un clic dans le texte, et y arriver doit dispenser de l'y ramener.
+ */
+export function rememberCentred(view: EditorView, from: number) {
+	centred.set(view, from);
+}
+
+/**
  * Le paragraphe étiqueté suivant (1) ou précédent (-1) par rapport à `head`, en revenant au début
  * (ou à la fin) du document. Le paragraphe qui contient `head` n'est jamais la cible.
  */
@@ -33,14 +48,8 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
 		effects: EditorView.scrollIntoView(anchor, { y: "center" }),
 	});
 	view.focus();
+	rememberCentred(view, target.block.from);
 }
-
-/**
- * Paragraphe centré au dernier clic, dans chaque éditeur. Seul un clic dans un autre paragraphe
- * l'efface : surtout pas un défilement, pour qu'on puisse partir voir ailleurs puis revenir
- * travailler dans celui-là sans que la vue saute à chaque fois qu'on y repose le curseur.
- */
-const centred = new WeakMap<EditorView, number>();
 
 /**
  * Extension : le premier clic dans un paragraphe le centre et le fait clignoter, comme un clic dans
