@@ -89,6 +89,9 @@
 /* Minipage : vue d'ensemble de la note, en haut à droite de l'éditeur, dans la largeur que
    minimap.ts réserve en marge de la zone de défilement (sa barre de défilement reste à gauche). */
 .mn-minimap {
+	/* Repère « page cornée », dessiné sur le canevas : un rouge plus vif et plus saturé que celui de
+	   la palette, pour se repérer d'un coup d'œil. Un extrait CSS peut le changer. */
+	--mn-corner-color: #ff2d2d;
 	position: absolute;
 	right: 0;
 	z-index: 5;

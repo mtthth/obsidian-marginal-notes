@@ -29,8 +29,10 @@ const BUBBLE_TAIL_SPACE = 6;
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
 const MIN_FLASH_HEIGHT = 4;
-/** Côté du triangle d'une page cornée, dessiné dans la marge de la minipage, à droite du texte. */
-const CORNER_SIZE = Platform.isMobile ? 4 : 6;
+/** Côté du triangle d'une page cornée : toute la marge de la minipage, à droite du texte. */
+const CORNER_SIZE = Platform.isMobile ? 4 : 8;
+/** Couleur de repli par défaut, si le thème ne définit pas --mn-corner-color (voir styles.css). */
+const CORNER_COLOR = "#ff2d2d";
 
 /** Bloc de texte à dessiner, en coordonnées de la minipage. */
 interface Band {
@@ -210,7 +212,7 @@ class MinimapView {
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		const textColor = getComputedStyle(view.contentDOM).color;
 		this.paintBands(ctx, bands, textColor);
-		this.paintCorners(ctx, corners, textColor);
+		this.paintCorners(ctx, corners);
 		this.updateViewport();
 		this.placeFlash();
 	}
@@ -294,10 +296,11 @@ class MinimapView {
 	 * bord de la page et non sur son texte : ils restent ainsi lisibles quelle que soit la couleur de
 	 * la bande qu'ils repèrent.
 	 */
-	private paintCorners(ctx: CanvasRenderingContext2D, corners: number[], textColor: string) {
+	private paintCorners(ctx: CanvasRenderingContext2D, corners: number[]) {
 		if (corners.length === 0) return;
-		const accent = getComputedStyle(this.view.dom).getPropertyValue("--text-accent").trim();
-		ctx.fillStyle = accent || textColor;
+		// Le canevas ne connaît pas les classes : la couleur se lit sur la minipage, où styles.css la
+		// pose, pour qu'un extrait CSS puisse la changer comme le reste.
+		ctx.fillStyle = getComputedStyle(this.dom).getPropertyValue("--mn-corner-color").trim() || CORNER_COLOR;
 		// paintBands laisse l'opacité de sa dernière bande : un repère, lui, est toujours opaque.
 		ctx.globalAlpha = 1;
 		for (const top of corners) {

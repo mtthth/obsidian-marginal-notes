@@ -1,6 +1,7 @@
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { paragraphAt } from "./paragraphs";
 import { flashParagraph } from "./flash";
+import { rememberScrolled } from "./navigation";
 
 /** Délai sans nouvel événement de défilement au bout duquel le geste est considéré fini. */
 const GESTURE_END_MS = 400;
@@ -37,6 +38,9 @@ class CenterFlash {
 	// intégrés au canevas ni dans les fenêtres de survol.
 	private onGesture = () => {
 		this.scrolling = this.view.dom.closest('.workspace-leaf-content[data-type="markdown"]') !== null;
+		// Le geste lui-même, et non le défilement qu'il produit : un centrage programmé fait défiler
+		// aussi, et ne doit pas passer pour la main de l'utilisateur.
+		if (this.scrolling) rememberScrolled(this.view);
 	};
 
 	private onScroll = () => {

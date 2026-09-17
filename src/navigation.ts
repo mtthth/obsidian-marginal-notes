@@ -15,11 +15,25 @@ const CLICK_SLOP = 4;
 const centred = new WeakMap<EditorView, number>();
 
 /**
+ * Vues où l'utilisateur vient de faire défiler le texte lui-même. Y cliquer ne centre rien : il est
+ * allé jusque-là exprès, pour y chercher quelque chose, et la vue doit rester là où il l'a posée.
+ * Le drapeau se consomme à ce clic ; la suite retrouve le comportement ordinaire.
+ */
+const scrolledTo = new WeakSet<EditorView>();
+
+/**
  * Retient le paragraphe sur lequel la vue vient d'être centrée, d'où que vienne le centrage : la
  * minipage y mène autant qu'un clic dans le texte, et y arriver doit dispenser de l'y ramener.
  */
 export function rememberCentred(view: EditorView, from: number) {
 	centred.set(view, from);
+	// La vue vient d'être placée pour lui : ce n'est plus lui qui a fait défiler jusque-là.
+	scrolledTo.delete(view);
+}
+
+/** Signale un défilement fait à la main, par la molette ou au doigt. */
+export function rememberScrolled(view: EditorView) {
+	scrolledTo.add(view);
 }
 
 /**
@@ -55,9 +69,10 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
 
 /**
  * Extension : le premier clic dans un paragraphe le centre et le fait clignoter, comme un clic dans
- * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Le
- * curseur, lui, reste là où on l'a posé. CM6 pose ces écouteurs sur contentDOM : les clics de la
- * gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
+ * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Sauf
+ * quand on vient d'y arriver en faisant défiler soi-même : le clic adopte alors le paragraphe sans
+ * rien déplacer. Le curseur, lui, reste toujours là où on l'a posé. CM6 pose ces écouteurs sur
+ * contentDOM : les clics de la gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
  */
 export function centerOnClick() {
 	let downAt: { x: number; y: number } | null = null;
@@ -75,7 +90,11 @@ export function centerOnClick() {
 			if (!block) return;
 			// Déjà celui du clic précédent : on y travaille, rien ne doit remuer.
 			if (centred.get(view) === block.from) return;
+			// Arrivé là en faisant défiler : le paragraphe devient celui où l'on travaille, mais sans
+			// que la vue bouge. Un clic ailleurs, ensuite, centrera comme d'habitude.
+			const arrivedByScroll = scrolledTo.delete(view);
 			centred.set(view, block.from);
+			if (arrivedByScroll) return;
 			view.dispatch({ effects: EditorView.scrollIntoView(textStart(block), { y: "center" }) });
 			flashParagraph(view, block.from, block.to);
 		},
