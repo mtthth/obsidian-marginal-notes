@@ -1,0 +1,24 @@
+{
+	"name": "obsidian-marginal-notes",
+	"version": "0.1.0",
+	"description": "Étiquettes de marge liées aux paragraphes pour Obsidian",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+	},
+	"keywords": [],
+	"author": "Matthieu Thomas",
+	"license": "MIT",
+	"devDependencies": {
+		"@codemirror/language": "^6.0.0",
+		"@codemirror/state": "6.5.0",
+		"@codemirror/view": "6.38.6",
+		"@types/node": "^20.0.0",
+		"builtin-modules": "^3.3.0",
+		"esbuild": "^0.20.0",
+		"obsidian": "latest",
+		"tslib": "2.4.0",
+		"typescript": "^5.0.0"
+	}
+}

@@ -1,0 +1,223 @@
+.mn-gutter {
+	min-width: 14px;
+	cursor: pointer;
+}
+
+/* Pas de marge interne : les segments de chaque ligne doivent se toucher pour former un ovale. */
+.mn-gutter .cm-gutterElement {
+	padding: 0;
+}
+
+.mn-gutter-marker {
+	display: flex;
+	justify-content: flex-end;
+	height: 100%;
+	padding: 0 4px;
+	box-sizing: border-box;
+}
+
+.mn-gutter-marker .mn-bar {
+	width: 6px;
+	background: var(--mn-color, var(--background-modifier-border));
+}
+
+.mn-gutter-marker.mn-first .mn-bar {
+	margin-top: 3px;
+	border-top-left-radius: 3px;
+	border-top-right-radius: 3px;
+}
+
+.mn-gutter-marker.mn-last .mn-bar {
+	margin-bottom: 3px;
+	border-bottom-left-radius: 3px;
+	border-bottom-right-radius: 3px;
+}
+
+/* Mode lecture : pas de gouttière, l'ovale est dessiné dans la marge gauche du bloc rendu. */
+.mn-reading-tag {
+	position: relative;
+}
+
+.mn-reading-tag::before {
+	content: "";
+	position: absolute;
+	top: 3px;
+	bottom: 3px;
+	inset-inline-start: -16px;
+	width: 6px;
+	border-radius: 3px;
+	background: var(--mn-color, var(--background-modifier-border));
+}
+
+.mn-reading-tag[data-mn-label]::after {
+	content: attr(data-mn-label);
+	position: absolute;
+	top: 3px;
+	inset-inline-end: calc(100% + 24px);
+	font: normal 10px/1.4 var(--font-interface);
+	letter-spacing: normal;
+	text-transform: none;
+	color: var(--text-muted);
+	white-space: nowrap;
+	max-width: 80px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Fond du paragraphe étiqueté, dans l'éditeur (une décoration par ligne) et en mode lecture. */
+.markdown-source-view.mod-cm6 .cm-line.mn-line-tagged,
+.markdown-rendered .mn-reading-tag.mn-has-color {
+	background-color: color-mix(in srgb, var(--mn-color) var(--mn-bg-alpha, 20%), transparent);
+}
+
+.markdown-source-view.mod-cm6 .cm-line.mn-line-tagged.mn-first {
+	border-top-left-radius: 4px;
+	border-top-right-radius: 4px;
+}
+
+.markdown-source-view.mod-cm6 .cm-line.mn-line-tagged.mn-last {
+	border-bottom-left-radius: 4px;
+	border-bottom-right-radius: 4px;
+}
+
+/* En lecture, l'ombre pleine prolonge le fond autour du texte sans décaler la mise en page. */
+.markdown-rendered .mn-reading-tag.mn-has-color {
+	border-radius: 4px;
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--mn-color) var(--mn-bg-alpha, 20%), transparent);
+}
+
+/* Minipage : vue d'ensemble de la note, en haut à droite de l'éditeur, dans la largeur que
+   minimap.ts réserve en marge de la zone de défilement (sa barre de défilement reste à gauche). */
+.mn-minimap {
+	position: absolute;
+	right: 0;
+	z-index: 5;
+	cursor: pointer;
+	touch-action: none;
+	user-select: none;
+}
+
+.mn-minimap canvas {
+	display: block;
+}
+
+.mn-minimap-viewport {
+	position: absolute;
+	left: 2px;
+	right: 2px;
+	box-sizing: border-box;
+	border: 1px solid var(--text-faint);
+	border-radius: 3px;
+	pointer-events: none;
+}
+
+/* Bulles d'étiquettes, à gauche de la minipage et par-dessus le texte, visibles seulement au
+   survol. `visibility` (et non `display`) pour que minimap.ts puisse les mesurer quand elles sont
+   masquées ; le délai avant de disparaître laisse le temps d'atteindre une bulle décalée. */
+.mn-minimap-bubbles {
+	position: absolute;
+	top: 0;
+	right: 100%;
+	visibility: hidden;
+	opacity: 0;
+	transition: opacity 120ms ease 200ms, visibility 0s linear 320ms;
+	pointer-events: none;
+}
+
+.mn-minimap:hover .mn-minimap-bubbles {
+	visibility: visible;
+	opacity: 1;
+	transition-delay: 0s;
+}
+
+.mn-bubble {
+	--mn-bubble-bg: var(--background-secondary);
+	position: absolute;
+	box-sizing: border-box;
+	max-width: 220px;
+	padding: 2px 8px;
+	border-radius: 9px;
+	background-color: var(--mn-bubble-bg);
+	box-shadow: var(--shadow-s);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+/* L'ellipse est portée par le texte intérieur, pour que la pointe puisse dépasser de la bulle. */
+.mn-bubble-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.mn-bubble.mn-colorless {
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.mn-bubble.mn-has-tail::after {
+	content: "";
+	position: absolute;
+	right: -5px;
+	top: calc(var(--mn-tail-y, 50%) - 5px);
+	border-top: 5px solid transparent;
+	border-bottom: 5px solid transparent;
+	border-left: 6px solid var(--mn-bubble-bg);
+}
+
+.mn-menu-swatch {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--mn-color);
+	margin-right: 6px;
+	vertical-align: middle;
+}
+
+/* La même bande jaune dans la minipage, sur la tranche du paragraphe atteint. */
+.mn-minimap-flash {
+	position: absolute;
+	left: 0;
+	right: 0;
+	border-radius: 2px;
+	pointer-events: none;
+}
+
+.mn-minimap-flash.mn-flash {
+	animation: mn-flash 1.5s ease-out;
+}
+
+/* Flash du paragraphe atteint depuis la minipage. Le jaune est une ombre intérieure pleine, et non
+   un background-color : il se peint par-dessus le fond de la ligne, qui peut ainsi revenir en fondu
+   plutôt que resurgir d'un coup à la fin. Son étalement couvre la ligne entière, quelle que soit sa
+   hauteur une fois repliée. */
+.markdown-source-view.mod-cm6 .cm-line.mn-flash {
+	animation: mn-flash 1.5s ease-out, mn-flash-through 1.5s ease-out;
+}
+
+@keyframes mn-flash {
+	from {
+		box-shadow: inset 0 0 0 9999px var(--text-highlight-bg);
+	}
+	to {
+		box-shadow: inset 0 0 0 9999px transparent;
+	}
+}
+
+/* Les fonds des éléments de la ligne (code en ligne, surlignage, étiquette…) se peignent par-dessus
+   l'ombre du flash et y feraient des trous ; celui de la ligne elle-même, sous une ombre translucide,
+   teinterait le jaune. Tous s'effacent donc le temps du flash, puis reviennent. Sans image-clé
+   d'arrivée, l'animation retrouve la couleur normale de chacun — inutile de les énumérer. */
+.markdown-source-view.mod-cm6 .cm-line.mn-flash * {
+	animation: mn-flash-through 1.5s ease-out;
+}
+
+@keyframes mn-flash-through {
+	from {
+		background-color: transparent;
+	}
+}
