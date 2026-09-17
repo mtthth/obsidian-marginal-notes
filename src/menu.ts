@@ -1,22 +1,10 @@
 import { Menu } from "obsidian";
 import { EditorView } from "@codemirror/view";
-import { encodeMarker, parseMarker, refreshMarkersEffect, ParagraphTag } from "./model";
+import { hasLabel, parseMarker } from "./model";
 import { markerText, ParagraphBlock } from "./paragraphs";
+import { applyTag } from "./tagEdit";
 import { TextInputModal } from "./textInputModal";
 import type MarginalNotesPlugin from "./main";
-
-function applyTag(view: EditorView, block: ParagraphBlock, newTag: ParagraphTag) {
-	const existing = parseMarker(markerText(block));
-	const removeLength = existing ? existing.matchLength : 0;
-	view.dispatch({
-		changes: {
-			from: block.markerFrom,
-			to: block.markerFrom + removeLength,
-			insert: encodeMarker(newTag),
-		},
-		effects: refreshMarkersEffect.of(),
-	});
-}
 
 export function openTagMenu(
 	plugin: MarginalNotesPlugin,
@@ -36,7 +24,7 @@ export function openTagMenu(
 			frag.createSpan({ text: isActive ? `${p.label} ✓` : p.label });
 			item.setTitle(frag);
 			item.onClick(() => {
-				applyTag(view, block, { color: isActive ? undefined : p.key, text: existing.text });
+				applyTag(view, block, { ...existing, color: isActive ? undefined : p.key });
 			});
 		});
 	}
@@ -47,18 +35,19 @@ export function openTagMenu(
 		item.setIcon("text-cursor-input");
 		item.onClick(() => {
 			new TextInputModal(plugin.app, existing.text ?? "", (value) => {
-				applyTag(view, block, { color: existing.color, text: value || undefined });
+				applyTag(view, block, { ...existing, text: value || undefined });
 			}).open();
 		});
 	});
 
-	if (existing.color || existing.text) {
+	if (hasLabel(existing)) {
 		menu.addSeparator();
 		menu.addItem((item) => {
 			item.setTitle("Supprimer l'étiquette");
 			item.setIcon("trash-2");
 			item.onClick(() => {
-				applyTag(view, block, {});
+				// L'étiquette seulement : un paragraphe corné le reste.
+				applyTag(view, block, { corner: existing.corner });
 			});
 		});
 	}

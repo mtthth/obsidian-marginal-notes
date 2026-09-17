@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import { EditorView } from "@codemirror/view";
+import { hasLabel } from "./model";
 import { paragraphAt, TaggedParagraph, taggedParagraphs, textStart } from "./paragraphs";
 import { flashParagraph } from "./flash";
 
@@ -36,7 +37,8 @@ export function findTagTarget(tagged: TaggedParagraph[], head: number, direction
 
 /** Place le curseur au début du texte du paragraphe étiqueté suivant ou précédent. */
 export function jumpToTag(view: EditorView, direction: 1 | -1) {
-	const target = findTagTarget(taggedParagraphs(view.state), view.state.selection.main.head, direction);
+	const labelled = taggedParagraphs(view.state).filter((t) => hasLabel(t.tag));
+	const target = findTagTarget(labelled, view.state.selection.main.head, direction);
 	if (!target) {
 		new Notice("Aucune étiquette dans cette note.");
 		return;

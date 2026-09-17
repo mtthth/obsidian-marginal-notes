@@ -6,6 +6,7 @@ import { allParagraphs, frontmatterLastLine, paragraphAt, textStart, type Paragr
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
+import { toggleCorner } from "./tagEdit";
 import type { TagDecorations } from "./gutter";
 import type MarginalNotesPlugin from "./main";
 
@@ -28,6 +29,8 @@ const BUBBLE_TAIL_SPACE = 6;
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
 const MIN_FLASH_HEIGHT = 4;
+/** Côté du triangle d'une page cornée, dessiné dans la marge de la minipage, à droite du texte. */
+const CORNER_SIZE = Platform.isMobile ? 4 : 6;
 
 /** Bloc de texte à dessiner, en coordonnées de la minipage. */
 interface Band {
@@ -121,6 +124,7 @@ class MinimapView {
 		this.dom.addEventListener("pointermove", this.onPointerMove);
 		this.dom.addEventListener("pointerup", this.onPointerUp);
 		this.dom.addEventListener("pointercancel", this.onPointerUp);
+		this.dom.addEventListener("contextmenu", this.onContextMenu);
 		this.dom.addEventListener("wheel", this.onWheel, { passive: false });
 		this.dom.addEventListener("pointerleave", this.resetStepping);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
@@ -189,7 +193,7 @@ class MinimapView {
 		this.scale = Math.min(available / docHeight, MAX_ROW_HEIGHT / lineHeight);
 		this.contentHeight = Math.floor(docHeight * this.scale);
 
-		const { bands, labels } = this.layout(lineHeight);
+		const { bands, labels, corners } = this.layout(lineHeight);
 
 		const height = this.contentHeight;
 		const ratio = window.devicePixelRatio || 1;
@@ -206,12 +210,13 @@ class MinimapView {
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		const textColor = getComputedStyle(view.contentDOM).color;
 		this.paintBands(ctx, bands, textColor);
+		this.paintCorners(ctx, corners, textColor);
 		this.updateViewport();
 		this.placeFlash();
 	}
 
-	/** Bandes de texte et étiquettes de la note, positionnées à l'échelle courante. */
-	private layout(lineHeight: number): { bands: Band[]; labels: Label[] } {
+	/** Bandes de texte, étiquettes et pages cornées de la note, positionnées à l'échelle courante. */
+	private layout(lineHeight: number): { bands: Band[]; labels: Label[]; corners: number[] } {
 		const { view } = this;
 		const doc = view.state.doc;
 		const charsPerRow = Math.max(1, view.contentDOM.clientWidth / view.defaultCharacterWidth);
@@ -219,6 +224,8 @@ class MinimapView {
 		const frontmatterEnd = frontmatterLastLine(doc);
 		const bands: Band[] = [];
 		const labels: Label[] = [];
+		/** Hauteurs, dans la minipage, des coins repliés à dessiner. */
+		const corners: number[] = [];
 		let t = 0;
 
 		for (let n = 1; n <= doc.lines; n++) {
@@ -245,6 +252,8 @@ class MinimapView {
 				alpha: color ? 1 : n <= frontmatterEnd ? FRONTMATTER_ALPHA : TEXT_ALPHA,
 			});
 
+			if (zone?.tag.corner && zone.block.from === line.from) corners.push(top);
+
 			if (zone?.tag.text && zone.block.from === line.from) {
 				// Bulle centrée sur une zone fine, alignée sur le haut d'une zone plus haute qu'elle.
 				const zoneHeight = (view.lineBlockAt(zone.block.to).bottom - block.top) * this.scale;
@@ -256,7 +265,7 @@ class MinimapView {
 				});
 			}
 		}
-		return { bands, labels };
+		return { bands, labels, corners };
 	}
 
 	private paintBands(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string) {
@@ -277,6 +286,27 @@ class MinimapView {
 				const fill = r < band.rows - 1 ? 1 : band.lastRowFill;
 				ctx.fillRect(PADDING_X, band.top + r * rowHeight + (rowHeight - barHeight) / 2, barWidth * fill, barHeight);
 			}
+		}
+	}
+
+	/**
+	 * Coins repliés des paragraphes cornés. Ils se dessinent dans la marge droite de la minipage, au
+	 * bord de la page et non sur son texte : ils restent ainsi lisibles quelle que soit la couleur de
+	 * la bande qu'ils repèrent.
+	 */
+	private paintCorners(ctx: CanvasRenderingContext2D, corners: number[], textColor: string) {
+		if (corners.length === 0) return;
+		const accent = getComputedStyle(this.view.dom).getPropertyValue("--text-accent").trim();
+		ctx.fillStyle = accent || textColor;
+		// paintBands laisse l'opacité de sa dernière bande : un repère, lui, est toujours opaque.
+		ctx.globalAlpha = 1;
+		for (const top of corners) {
+			ctx.beginPath();
+			ctx.moveTo(WIDTH - CORNER_SIZE, top);
+			ctx.lineTo(WIDTH, top);
+			ctx.lineTo(WIDTH, top + CORNER_SIZE);
+			ctx.closePath();
+			ctx.fill();
 		}
 	}
 
@@ -375,6 +405,22 @@ class MinimapView {
 		this.dom.setPointerCapture(event.pointerId);
 		this.dragging = true;
 		this.jumpTo(event.clientY, true);
+	};
+
+	/**
+	 * Clic droit : corner ou décorner le paragraphe visé, sans s'y rendre — voir la corne apparaître
+	 * suffit. L'événement s'arrête ici : il n'a ni à ouvrir le menu contextuel d'Obsidian, ni à laisser
+	 * main.ts retenir sa position, qui ne désigne aucun endroit du texte.
+	 */
+	private onContextMenu = (event: MouseEvent) => {
+		event.preventDefault();
+		event.stopPropagation();
+		if (!this.scale) return;
+		// Comme au clic gauche : une bulle vise son paragraphe, où qu'elle ait été décalée.
+		const bubble = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble") : null;
+		const pos = bubble ? Number(bubble.dataset.pos) : this.posAtY(event.clientY);
+		const block = paragraphAt(this.view.state, pos);
+		if (block) toggleCorner(this.view, block);
 	};
 
 	private onPointerMove = (event: PointerEvent) => {
@@ -484,19 +530,27 @@ class MinimapView {
 	}
 
 	/**
-	 * Centre l'éditeur sur l'endroit de la note correspondant à `clientY`. Au clic (et non pendant un
-	 * glissement, qui clignoterait à chaque mouvement), y place aussi le curseur et fait clignoter l'arrivée.
+	 * Endroit de la note qui se trouve sous le pointeur, à la hauteur `clientY`. La position visée est
+	 * proportionnelle dans le bloc plutôt qu'à son début : le texte défile ainsi continûment sous le
+	 * pointeur pendant un glissement.
 	 */
-	private jumpTo(clientY: number, click: boolean) {
+	private posAtY(clientY: number): number {
 		const { view } = this;
 		const docHeight = view.lineBlockAt(view.state.doc.length).bottom;
 		const y = (clientY - this.canvas.getBoundingClientRect().top) / this.scale;
 		const height = Math.min(docHeight, Math.max(0, y));
 		const block = view.lineBlockAtHeight(height);
-		// Pendant un glissement, vise la position proportionnelle dans le bloc plutôt que son début :
-		// le texte défile alors continûment sous le pointeur.
 		const fraction = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
-		const pos = block.from + Math.round(fraction * (block.to - block.from));
+		return block.from + Math.round(fraction * (block.to - block.from));
+	}
+
+	/**
+	 * Centre l'éditeur sur l'endroit de la note correspondant à `clientY`. Au clic (et non pendant un
+	 * glissement, qui clignoterait à chaque mouvement), y place aussi le curseur et fait clignoter l'arrivée.
+	 */
+	private jumpTo(clientY: number, click: boolean) {
+		const { view } = this;
+		const pos = this.posAtY(clientY);
 		if (!click) {
 			this.scrollToPos(pos, false);
 			return;

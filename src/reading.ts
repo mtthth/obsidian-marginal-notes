@@ -1,5 +1,6 @@
 import { EditorState } from "@codemirror/state";
 import type { MarkdownPostProcessorContext } from "obsidian";
+import { hasLabel } from "./model";
 import { TaggedParagraph, taggedParagraphs } from "./paragraphs";
 import type MarginalNotesPlugin from "./main";
 
@@ -28,7 +29,7 @@ export function createReadingPostProcessor(plugin: MarginalNotesPlugin) {
 		// Les numéros de ligne de CM6 commencent à 1, ceux des sections à 0.
 		const hit = taggedParagraphsOf(info.text).find((t) => {
 			const lineIndex = t.block.firstLine.number - 1;
-			return lineIndex >= info.lineStart && lineIndex <= info.lineEnd;
+			return hasLabel(t.tag) && lineIndex >= info.lineStart && lineIndex <= info.lineEnd;
 		});
 		if (!hit) return;
 
