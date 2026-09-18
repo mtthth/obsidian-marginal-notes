@@ -1,8 +1,16 @@
 import { Platform } from "obsidian";
-import { StateField } from "@codemirror/state";
+import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { refreshMarkersEffect } from "./model";
-import { allParagraphs, frontmatterLastLine, paragraphAt, textStart, type ParagraphBlock } from "./paragraphs";
+import {
+	allParagraphs,
+	allSections,
+	frontmatterLastLine,
+	paragraphAt,
+	textStart,
+	type ParagraphBlock,
+	type SectionBoundary,
+} from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
@@ -28,6 +36,12 @@ const BUBBLE_TAIL_SPACE = 6;
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
 const MIN_FLASH_HEIGHT = 4;
+/** Repère d'un trait de séparation, qui n'a pas de numéro. */
+const RULE_BADGE = "★";
+/** Écart vertical entre deux repères de sections que l'échelle de la minipage a rapprochés. */
+const SECTION_GAP = 2;
+/** Écart horizontal entre la colonne des repères de sections et les bulles d'étiquettes. */
+const SECTION_BUBBLE_GAP = 4;
 
 /** Bloc de texte à dessiner, en coordonnées de la minipage. */
 interface Band {
@@ -90,6 +104,11 @@ class MinimapView {
 	private contentHeight = 0;
 	private bubbleLayer: HTMLElement;
 	private bubbleEls: HTMLElement[] = [];
+	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
+	private sectionLayer: HTMLElement;
+	private sectionEls: HTMLElement[] = [];
+	/** Sections de la note, relues seulement quand son texte change (un doc CM6 est immuable). */
+	private sectionCache: { doc: Text; sections: SectionBoundary[] } | null = null;
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
 	private flashed: { from: number; to: number } | null = null;
@@ -113,8 +132,10 @@ class MinimapView {
 		this.flashEl = this.dom.createDiv({ cls: "mn-minimap-flash" });
 		this.viewportEl = this.dom.appendChild(document.createElement("div"));
 		this.viewportEl.className = "mn-minimap-viewport";
-		// Dans la minipage (et non à côté) pour que survoler une bulle compte comme survoler la minipage.
+		// Dans la minipage (et non à côté) pour que survoler une bulle ou un repère de section compte
+		// comme survoler la minipage.
 		this.bubbleLayer = this.dom.createDiv({ cls: "mn-minimap-bubbles" });
+		this.sectionLayer = this.dom.createDiv({ cls: "mn-minimap-sections" });
 		view.dom.appendChild(this.dom);
 
 		this.dom.addEventListener("pointerdown", this.onPointerDown);
@@ -199,7 +220,10 @@ class MinimapView {
 		this.canvas.height = Math.round(height * ratio);
 		this.canvas.style.width = `${WIDTH}px`;
 		this.canvas.style.height = `${height}px`;
-		this.renderBubbles(labels, available);
+		// Les repères de sections d'abord : leur largeur mesurée dit de combien les bulles s'écartent.
+		const sectionWidth = this.renderSections(available);
+		this.dom.style.setProperty("--mn-section-width", `${sectionWidth}px`);
+		this.renderBubbles(labels, available, sectionWidth);
 
 		const ctx = this.canvas.getContext("2d");
 		if (!ctx) return;
@@ -281,10 +305,11 @@ class MinimapView {
 	}
 
 	/**
-	 * Bulles des étiquettes, à gauche de la minipage et par-dessus le texte. Masquées en CSS tant que
-	 * la minipage n'est pas survolée, mais toujours mises en page pour pouvoir être mesurées.
+	 * Bulles des étiquettes, à gauche de la minipage (au-delà des repères de sections, larges de
+	 * `sectionWidth`) et par-dessus le texte. Masquées en CSS tant que la minipage n'est pas survolée,
+	 * mais toujours mises en page pour pouvoir être mesurées.
 	 */
-	private renderBubbles(labels: Label[], maxHeight: number) {
+	private renderBubbles(labels: Label[], maxHeight: number, sectionWidth: number) {
 		while (this.bubbleEls.length < labels.length) {
 			const el = this.bubbleLayer.createDiv({ cls: "mn-bubble" });
 			el.createSpan({ cls: "mn-bubble-text" });
@@ -321,7 +346,10 @@ class MinimapView {
 			// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
 			maxSpread: Math.max(
 				0,
-				this.dom.getBoundingClientRect().left - this.view.contentDOM.getBoundingClientRect().left - BUBBLE_TAIL_SPACE
+				this.dom.getBoundingClientRect().left -
+					this.view.contentDOM.getBoundingClientRect().left -
+					sectionWidth -
+					BUBBLE_TAIL_SPACE
 			),
 			gap: BUBBLE_GAP,
 			maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75,
@@ -340,6 +368,76 @@ class MinimapView {
 			const tailY = Math.min(sizes[i].height - 6, Math.max(6, sizes[i].center - placement.top));
 			el.style.setProperty("--mn-tail-y", `${tailY}px`);
 		});
+	}
+
+	/** Frontières de sections de la note, relues seulement quand son texte a changé. */
+	private documentSections(): SectionBoundary[] {
+		const { doc } = this.view.state;
+		if (this.sectionCache?.doc !== doc) this.sectionCache = { doc, sections: allSections(this.view.state) };
+		return this.sectionCache.sections;
+	}
+
+	/**
+	 * Repères des frontières de sections, en colonne contre le bord gauche de la minipage : une étoile
+	 * pour un trait de séparation ; pour un titre, son numéro dans un rond suivi du début du titre.
+	 * Comme les bulles, ils ne sont visibles qu'au survol mais toujours mis en page pour pouvoir être
+	 * mesurés. Renvoie la largeur de la colonne, dont les bulles doivent s'écarter.
+	 */
+	private renderSections(maxHeight: number): number {
+		const sections = this.documentSections();
+		while (this.sectionEls.length < sections.length) {
+			const el = this.sectionLayer.createDiv({ cls: "mn-section" });
+			el.createSpan({ cls: "mn-section-badge" });
+			el.createSpan({ cls: "mn-section-title" });
+			this.sectionEls.push(el);
+		}
+		while (this.sectionEls.length > sections.length) this.sectionEls.pop()?.remove();
+
+		// Numérotés 1, 2… pour les titres de niveau 2, et 1.1, 1.2… pour ceux de niveau 3.
+		let chapter = 0;
+		let part = 0;
+		const sizes = sections.map((section, i) => {
+			if (section.level === 2) {
+				chapter++;
+				part = 0;
+			} else if (section.level === 3) {
+				part++;
+			}
+			const el = this.sectionEls[i];
+			el.show();
+			el.style.top = "0px";
+			const badge = el.firstElementChild as HTMLElement;
+			badge.textContent = section.level === 0 ? RULE_BADGE : section.level === 2 ? String(chapter) : `${chapter}.${part}`;
+			const title = el.lastElementChild as HTMLElement;
+			title.textContent = section.title;
+			el.title = section.title;
+			el.dataset.pos = String(section.pos);
+			el.toggleClass("mn-section-rule", section.level === 0);
+			const block = this.view.lineBlockAt(section.line.from);
+			return {
+				center: (block.top + block.height / 2) * this.scale,
+				width: el.offsetWidth,
+				height: el.offsetHeight,
+			};
+		});
+
+		// Chaque repère est centré sur sa frontière. À l'échelle de la minipage, deux titres voisins
+		// tombent à quelques pixels l'un de l'autre : le second est alors repoussé sous le premier.
+		let width = 0;
+		let bottom = 0;
+		sizes.forEach((size, i) => {
+			const el = this.sectionEls[i];
+			const ideal = Math.min(maxHeight - size.height, Math.max(0, size.center - size.height / 2));
+			const top = Math.max(bottom, ideal);
+			if (top + size.height > maxHeight) {
+				el.hide();
+				return;
+			}
+			el.style.top = `${top}px`;
+			bottom = top + size.height + SECTION_GAP;
+			width = Math.max(width, size.width);
+		});
+		return width ? width + SECTION_BUBBLE_GAP : 0;
 	}
 
 	/** Cadre indiquant la portion de la note actuellement visible dans l'éditeur. */
@@ -363,10 +461,12 @@ class MinimapView {
 		// Le prochain cran de molette repartira d'ici, et non du paragraphe atteint avant le clic.
 		this.resetStepping();
 
-		// Un clic sur une bulle mène au début de son paragraphe, même si elle a été décalée.
-		const bubble = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble") : null;
-		if (bubble) {
-			const pos = Number(bubble.dataset.pos);
+		// Un clic sur une bulle ou sur un repère de section mène à ce qu'il désigne, même s'il a été
+		// décalé pour ne pas en recouvrir un autre.
+		const marker =
+			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
+		if (marker) {
+			const pos = Number(marker.dataset.pos);
 			this.scrollToPos(pos, true);
 			this.flashAt(pos);
 			return;
