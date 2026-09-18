@@ -15,6 +15,9 @@ export interface ParagraphBlock {
 
 const HEADING_RE = /^\s{0,3}(#{1,6})(?:\s|$)/;
 const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+// Ligne de `=` ou de `-` qui, juste sous un paragraphe ordinaire, le souligne en titre (setext) :
+// niveau 1 pour `=`, 2 pour `-`.
+const SETEXT_RE = /^\s{0,3}(=+|-+)\s*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 // Préfixe (titre, citation, puce, liste numérotée, case à cocher) après lequel insérer le
 // marqueur, pour ne pas casser la syntaxe de la ligne.
@@ -27,6 +30,14 @@ function markerOffset(text: string): number | null {
 	// Tableaux et en-têtes de callout : un marqueur en tête casserait leur rendu.
 	if (rest.startsWith("|") || rest.startsWith("[!")) return null;
 	return offset;
+}
+
+/**
+ * Vrai pour la première ligne d'un paragraphe ordinaire (ni titre, ni liste, ni citation) : le seul
+ * qu'un soulignement setext change en titre.
+ */
+function isPlainParagraph(text: string): boolean {
+	return PREFIX_RE.exec(text)?.[0].trim() === "";
 }
 
 /** Si la ligne ouvre un bloc à ignorer, renvoie le motif de sa ligne fermante. */
@@ -88,6 +99,13 @@ function forEachBlock(
 		}
 
 		if (text.trim() === "") {
+			if (flush()) return;
+			continue;
+		}
+
+		// Le soulignement d'un titre setext fait partie du titre : ce n'est pas un trait.
+		if (first && isPlainParagraph(first.text) && SETEXT_RE.test(text)) {
+			last = line;
 			if (flush()) return;
 			continue;
 		}
@@ -167,7 +185,7 @@ export interface SectionBoundary {
 	level: number;
 	/** Début du titre, abrégé pour tenir dans la marge ; vide pour un trait. */
 	title: string;
-	/** Où mener un clic : le texte du titre, ou le premier paragraphe qui suit le trait. */
+	/** Où mener un clic : le texte du titre, ou ce qui suit le trait. */
 	pos: number;
 }
 
@@ -190,28 +208,49 @@ function shortTitle(text: string): string {
 }
 
 /**
+ * Niveau d'un bloc titre, `## Titre` ou `Titre` souligné (setext), et la fin du texte de ce titre ;
+ * null si le bloc n'est pas un titre.
+ */
+function headingOf(doc: Text, block: ParagraphBlock): { level: number; textEnd: number } | null {
+	const atx = HEADING_RE.exec(block.firstLine.text);
+	if (atx) return { level: atx[1].length, textEnd: block.to };
+	// forEachBlock ne termine un paragraphe ordinaire sur une ligne non vide qu'à son soulignement.
+	const underline = doc.lineAt(block.to);
+	if (underline.number === block.firstLine.number || !isPlainParagraph(block.firstLine.text)) return null;
+	const setext = SETEXT_RE.exec(underline.text);
+	return setext ? { level: setext[1][0] === "=" ? 1 : 2, textEnd: underline.from - 1 } : null;
+}
+
+/**
  * Les frontières de sections de la note, dans l'ordre : les titres de niveau 2 et 3, et les traits
- * de séparation (`***`, `---`, `___`). Un trait ne désigne aucun texte : on y fait mener au premier
- * paragraphe qui le suit, c'est-à-dire au début de la section qu'il ouvre.
+ * de séparation (`***`, `---`, `___`). Un trait ne désigne aucun texte : on y fait mener à ce qui
+ * le suit, c'est-à-dire au début de la section qu'il ouvre.
  */
 export function allSections(state: EditorState): SectionBoundary[] {
+	const { doc } = state;
 	const sections: SectionBoundary[] = [];
 	let pending: SectionBoundary[] = [];
 	forEachBlock(
 		state,
 		(block) => {
 			const pos = textStart(block);
-			for (const rule of pending) rule.pos = pos;
+			// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
+			for (const rule of pending) if (rule.pos === block.from) rule.pos = pos;
 			pending = [];
-			const level = HEADING_RE.exec(block.firstLine.text)?.[1].length ?? 0;
-			if (level === 2 || level === 3) {
-				sections.push({ line: block.firstLine, level, title: shortTitle(state.doc.sliceString(pos, block.to)), pos });
+			const heading = headingOf(doc, block);
+			if (heading && (heading.level === 2 || heading.level === 3)) {
+				const title = shortTitle(doc.sliceString(pos, heading.textEnd));
+				sections.push({ line: block.firstLine, level: heading.level, title, pos });
 			}
 		},
 		(line) => {
-			// Tant qu'aucun paragraphe ne suit, un trait renvoie à lui-même : c'est le cas d'un trait
-			// posé en fin de note.
-			const rule: SectionBoundary = { line, level: 0, title: "", pos: line.from };
+			// La première ligne qui suit le trait, quelle qu'elle soit : un encadré, un tableau ou un bloc
+			// de code, que forEachBlock ne visite pas, ouvrent la section aussi bien qu'un paragraphe.
+			// En fin de note, faute de mieux, le trait renvoie à lui-même.
+			let next = line.number + 1;
+			while (next <= doc.lines && (doc.line(next).text.trim() === "" || HR_RE.test(doc.line(next).text))) next++;
+			const pos = next <= doc.lines ? doc.line(next).from : line.from;
+			const rule: SectionBoundary = { line, level: 0, title: "", pos };
 			sections.push(rule);
 			pending.push(rule);
 		}
