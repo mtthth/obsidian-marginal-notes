@@ -14,6 +14,7 @@ import {
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
+import { SearchWatcher } from "./search";
 import type { TagDecorations } from "./gutter";
 import type MarginalNotesPlugin from "./main";
 
@@ -28,6 +29,8 @@ const MIN_ROW_HEIGHT = 2;
 /** Opacité des lignes de texte ordinaires, et de celles du frontmatter YAML, dessinées plus claires. */
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
+/** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
+const SEARCH_ALPHA = 0.5;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe. */
@@ -119,6 +122,8 @@ class MinimapView {
 	private wheelDelta = 0;
 	private wheelNotch = 0;
 	private stepIndex: number | null = null;
+	/** Mot tapé dans la barre de recherche d'Obsidian (Ctrl+F), et les blocs où il apparaît. */
+	private search: SearchWatcher;
 
 	constructor(
 		private view: EditorView,
@@ -146,6 +151,7 @@ class MinimapView {
 		this.dom.addEventListener("wheel", this.onWheel, { passive: false });
 		this.dom.addEventListener("pointerleave", this.resetStepping);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
+		this.search = new SearchWatcher(view, () => this.schedule());
 		this.schedule();
 	}
 
@@ -169,6 +175,7 @@ class MinimapView {
 		cancelAnimationFrame(this.frame);
 		window.clearTimeout(this.flashTimer);
 		this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+		this.search.destroy();
 		this.reserveSpace(false);
 		this.dom.remove();
 	}
@@ -230,6 +237,7 @@ class MinimapView {
 		if (!ctx) return;
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		const textColor = getComputedStyle(view.contentDOM).color;
+		this.paintMatches(ctx);
 		this.paintBands(ctx, bands, textColor);
 		this.updateViewport();
 		this.placeFlash();
@@ -303,6 +311,32 @@ class MinimapView {
 				ctx.fillRect(PADDING_X, band.top + r * rowHeight + (rowHeight - barHeight) / 2, barWidth * fill, barHeight);
 			}
 		}
+	}
+
+	/**
+	 * Fond des blocs où apparaît le mot tapé dans la barre de recherche d'Obsidian (Ctrl+F). Peint sous
+	 * les lignes et sur toute la largeur, il déborde dans les marges : un bloc étiqueté, dont les lignes
+	 * sont opaques, y reste repérable sans perdre sa couleur.
+	 */
+	private paintMatches(ctx: CanvasRenderingContext2D) {
+		const { view } = this;
+		const hits = this.search.hits(view.state);
+		if (hits.length === 0) return;
+		const spans: { top: number; bottom: number }[] = [];
+		for (const hit of hits) {
+			const top = view.lineBlockAt(hit.from).top * this.scale;
+			// Même hauteur plancher que le flash, sans quoi un paragraphe court ferait à peine un pixel.
+			const bottom = Math.max(view.lineBlockAt(hit.to).bottom * this.scale, top + MIN_FLASH_HEIGHT);
+			const last = spans[spans.length - 1];
+			// Ce plancher fait parfois chevaucher deux blocs voisins : un seul rectangle, pour que
+			// l'opacité ne double pas.
+			if (last && top < last.bottom) last.bottom = Math.max(last.bottom, bottom);
+			else spans.push({ top, bottom });
+		}
+		// Le canevas n'affiche aucun texte : styles.css lui donne pour couleur celle de la recherche.
+		ctx.fillStyle = getComputedStyle(this.canvas).color;
+		ctx.globalAlpha = SEARCH_ALPHA;
+		for (const span of spans) ctx.fillRect(0, span.top, WIDTH, span.bottom - span.top);
 	}
 
 	/**
