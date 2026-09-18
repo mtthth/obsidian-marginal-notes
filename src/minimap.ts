@@ -107,8 +107,9 @@ class MinimapView {
 	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
 	private sectionLayer: HTMLElement;
 	private sectionEls: HTMLElement[] = [];
-	/** Sections de la note, relues seulement quand son texte change (un doc CM6 est immuable). */
-	private sectionCache: { doc: Text; sections: SectionBoundary[] } | null = null;
+	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
+	private sectionDoc: Text | null = null;
+	private sections: SectionBoundary[] = [];
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
 	private flashed: { from: number; to: number } | null = null;
@@ -370,33 +371,28 @@ class MinimapView {
 		});
 	}
 
-	/** Frontières de sections de la note, relues seulement quand son texte a changé. */
-	private documentSections(): SectionBoundary[] {
-		const { doc } = this.view.state;
-		if (this.sectionCache?.doc !== doc) this.sectionCache = { doc, sections: allSections(this.view.state) };
-		return this.sectionCache.sections;
-	}
-
 	/**
-	 * Repères des frontières de sections, en colonne contre le bord gauche de la minipage : une étoile
-	 * pour un trait de séparation ; pour un titre, son numéro dans un rond suivi du début du titre.
-	 * Comme les bulles, ils ne sont visibles qu'au survol mais toujours mis en page pour pouvoir être
-	 * mesurés. Renvoie la largeur de la colonne, dont les bulles doivent s'écarter.
+	 * Frontières de sections de la note, et contenu de leurs repères : une étoile pour un trait de
+	 * séparation ; pour un titre, son numéro dans un rond suivi du début du titre. Refaits seulement
+	 * quand le texte de la note a changé.
 	 */
-	private renderSections(maxHeight: number): number {
-		const sections = this.documentSections();
-		while (this.sectionEls.length < sections.length) {
+	private syncSections(): SectionBoundary[] {
+		const { doc } = this.view.state;
+		if (this.sectionDoc === doc) return this.sections;
+		this.sectionDoc = doc;
+		this.sections = allSections(this.view.state);
+		while (this.sectionEls.length < this.sections.length) {
 			const el = this.sectionLayer.createDiv({ cls: "mn-section" });
 			el.createSpan({ cls: "mn-section-badge" });
 			el.createSpan({ cls: "mn-section-title" });
 			this.sectionEls.push(el);
 		}
-		while (this.sectionEls.length > sections.length) this.sectionEls.pop()?.remove();
+		while (this.sectionEls.length > this.sections.length) this.sectionEls.pop()?.remove();
 
 		// Numérotés 1, 2… pour les titres de niveau 2, et 1.1, 1.2… pour ceux de niveau 3.
 		let chapter = 0;
 		let part = 0;
-		const sizes = sections.map((section, i) => {
+		this.sections.forEach((section, i) => {
 			if (section.level === 2) {
 				chapter++;
 				part = 0;
@@ -404,8 +400,6 @@ class MinimapView {
 				part++;
 			}
 			const el = this.sectionEls[i];
-			el.show();
-			el.style.top = "0px";
 			const badge = el.firstElementChild as HTMLElement;
 			badge.textContent = section.level === 0 ? RULE_BADGE : section.level === 2 ? String(chapter) : `${chapter}.${part}`;
 			const title = el.lastElementChild as HTMLElement;
@@ -413,26 +407,35 @@ class MinimapView {
 			el.title = section.title;
 			el.dataset.pos = String(section.pos);
 			el.toggleClass("mn-section-rule", section.level === 0);
-			const block = this.view.lineBlockAt(section.line.from);
-			return {
-				center: (block.top + block.height / 2) * this.scale,
-				width: el.offsetWidth,
-				height: el.offsetHeight,
-			};
 		});
+		return this.sections;
+	}
 
-		// Chaque repère est centré sur sa frontière. À l'échelle de la minipage, deux titres voisins
-		// tombent à quelques pixels l'un de l'autre : le second est alors repoussé sous le premier.
+	/**
+	 * Place les repères de sections en colonne contre le bord gauche de la minipage, chacun centré sur
+	 * sa frontière. Comme les bulles, ils ne sont visibles qu'au survol mais toujours mis en page pour
+	 * pouvoir être mesurés. Renvoie la largeur de la colonne, dont les bulles doivent s'écarter.
+	 */
+	private renderSections(maxHeight: number): number {
+		const sections = this.syncSections();
+		// Toutes les mesures avant la moindre écriture : une seule mise en page forcée, quel que soit le
+		// nombre de repères. Celui qui ne tenait pas au dessin précédent, masqué par `visibility`, reste
+		// mesurable.
+		const sizes = this.sectionEls.map((el) => ({ width: el.offsetWidth, height: el.offsetHeight }));
+
+		// À l'échelle de la minipage, deux titres voisins tombent à quelques pixels l'un de l'autre :
+		// le second est alors repoussé sous le premier.
 		let width = 0;
 		let bottom = 0;
-		sizes.forEach((size, i) => {
+		sections.forEach((section, i) => {
 			const el = this.sectionEls[i];
-			const ideal = Math.min(maxHeight - size.height, Math.max(0, size.center - size.height / 2));
-			const top = Math.max(bottom, ideal);
-			if (top + size.height > maxHeight) {
-				el.hide();
-				return;
-			}
+			const size = sizes[i];
+			const block = this.view.lineBlockAt(section.line.from);
+			const center = (block.top + block.height / 2) * this.scale;
+			const top = Math.max(bottom, Math.min(maxHeight - size.height, Math.max(0, center - size.height / 2)));
+			const fits = top + size.height <= maxHeight;
+			el.toggleClass("mn-section-overflow", !fits);
+			if (!fits) return;
 			el.style.top = `${top}px`;
 			bottom = top + size.height + SECTION_GAP;
 			width = Math.max(width, size.width);

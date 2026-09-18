@@ -241,15 +241,25 @@
 	display: none;
 }
 
-/* Un trait de séparation n'a ni numéro ni titre : une étoile seule, sans rond autour. */
+/* Un trait de séparation n'a ni numéro ni titre : une étoile seule, sans rond ni pastille, que son
+   halo garde lisible par-dessus le texte. */
 .mn-section.mn-section-rule {
-	padding-right: 1px;
+	padding: 1px;
+	border-color: transparent;
+	background: none;
+	box-shadow: none;
 }
 
 .mn-section-rule .mn-section-badge {
-	background-color: transparent;
-	color: var(--text-muted);
-	font-size: 12px;
+	background: none;
+	color: inherit;
+	font-size: 14px;
+	text-shadow: 0 0 3px var(--background-primary), 0 0 3px var(--background-primary);
+}
+
+/* Repère qui ne tient plus dans la hauteur disponible : caché, mais toujours mesurable. */
+.mn-section.mn-section-overflow {
+	visibility: hidden;
 }
 
 .mn-menu-swatch {
