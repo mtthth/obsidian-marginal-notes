@@ -30,7 +30,7 @@ const MIN_ROW_HEIGHT = 2;
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
 /** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
-const SEARCH_ALPHA = 0.5;
+const SEARCH_ALPHA = 0.9;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe. */
