@@ -1,4 +1,5 @@
 import { Notice } from "obsidian";
+import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { paragraphAt, TaggedParagraph, taggedParagraphs, textStart } from "./paragraphs";
 import { flashParagraph } from "./flash";
@@ -52,6 +53,24 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
 }
 
 /**
+ * La sélection que le navigateur vient de poser dans le texte, si CodeMirror ne l'a pas encore relue.
+ *
+ * Au toucher, CodeMirror laisse le navigateur placer le curseur et ne relit la sélection qu'à
+ * l'événement selectionchange, qui arrive après le clic. Une transaction envoyée entre-temps lui fait
+ * remettre dans la page sa sélection d'avant — le début de la note, si on vient de l'ouvrir — et la
+ * vue y saute dès que le clavier apparaît. Il faut donc la lui transmettre avec la transaction.
+ */
+function unreadDomSelection(view: EditorView): EditorSelection | undefined {
+	const dom = view.dom.ownerDocument.getSelection();
+	if (!dom?.anchorNode || !dom.focusNode) return undefined;
+	if (!view.contentDOM.contains(dom.anchorNode) || !view.contentDOM.contains(dom.focusNode)) return undefined;
+	const anchor = view.posAtDOM(dom.anchorNode, dom.anchorOffset);
+	const head = view.posAtDOM(dom.focusNode, dom.focusOffset);
+	const { main } = view.state.selection;
+	return main.anchor === anchor && main.head === head ? undefined : EditorSelection.single(anchor, head);
+}
+
+/**
  * Extension : le premier clic dans un paragraphe le centre et le fait clignoter, comme un clic dans
  * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Le
  * curseur, lui, reste là où on l'a posé. CM6 pose ces écouteurs sur contentDOM : les clics de la
@@ -74,7 +93,12 @@ export function centerOnClick() {
 			// Déjà celui du clic précédent : on y travaille, rien ne doit remuer.
 			if (centred.get(view) === block.from) return;
 			centred.set(view, block.from);
-			view.dispatch({ effects: EditorView.scrollIntoView(textStart(block), { y: "center" }) });
+			const selection = unreadDomSelection(view);
+			view.dispatch({
+				selection,
+				userEvent: selection && "select.pointer",
+				effects: EditorView.scrollIntoView(textStart(block), { y: "center" }),
+			});
 			flashParagraph(view, block.from, block.to);
 		},
 	});
