@@ -1,11 +1,20 @@
 import { Platform } from "obsidian";
-import { StateField } from "@codemirror/state";
+import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { refreshMarkersEffect } from "./model";
-import { allParagraphs, frontmatterLastLine, paragraphAt, textStart, type ParagraphBlock } from "./paragraphs";
+import {
+	allParagraphs,
+	allSections,
+	frontmatterLastLine,
+	paragraphAt,
+	textStart,
+	type ParagraphBlock,
+	type SectionBoundary,
+} from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
+import { SearchWatcher } from "./search";
 import type { TagDecorations } from "./gutter";
 import type MarginalNotesPlugin from "./main";
 
@@ -20,6 +29,8 @@ const MIN_ROW_HEIGHT = 2;
 /** Opacité des lignes de texte ordinaires, et de celles du frontmatter YAML, dessinées plus claires. */
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
+/** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
+const SEARCH_ALPHA = 0.9;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe. */
@@ -28,6 +39,12 @@ const BUBBLE_TAIL_SPACE = 6;
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
 const MIN_FLASH_HEIGHT = 4;
+/** Repère d'un trait de séparation, qui n'a pas de numéro. */
+const RULE_BADGE = "★";
+/** Écart vertical entre deux repères de sections que l'échelle de la minipage a rapprochés. */
+const SECTION_GAP = 2;
+/** Écart horizontal entre la colonne des repères de sections et les bulles d'étiquettes. */
+const SECTION_BUBBLE_GAP = 4;
 
 /** Bloc de texte à dessiner, en coordonnées de la minipage. */
 interface Band {
@@ -90,6 +107,12 @@ class MinimapView {
 	private contentHeight = 0;
 	private bubbleLayer: HTMLElement;
 	private bubbleEls: HTMLElement[] = [];
+	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
+	private sectionLayer: HTMLElement;
+	private sectionEls: HTMLElement[] = [];
+	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
+	private sectionDoc: Text | null = null;
+	private sections: SectionBoundary[] = [];
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
 	private flashed: { from: number; to: number } | null = null;
@@ -99,6 +122,8 @@ class MinimapView {
 	private wheelDelta = 0;
 	private wheelNotch = 0;
 	private stepIndex: number | null = null;
+	/** Mot tapé dans la barre de recherche d'Obsidian (Ctrl+F), et les blocs où il apparaît. */
+	private search: SearchWatcher;
 
 	constructor(
 		private view: EditorView,
@@ -113,8 +138,10 @@ class MinimapView {
 		this.flashEl = this.dom.createDiv({ cls: "mn-minimap-flash" });
 		this.viewportEl = this.dom.appendChild(document.createElement("div"));
 		this.viewportEl.className = "mn-minimap-viewport";
-		// Dans la minipage (et non à côté) pour que survoler une bulle compte comme survoler la minipage.
+		// Dans la minipage (et non à côté) pour que survoler une bulle ou un repère de section compte
+		// comme survoler la minipage.
 		this.bubbleLayer = this.dom.createDiv({ cls: "mn-minimap-bubbles" });
+		this.sectionLayer = this.dom.createDiv({ cls: "mn-minimap-sections" });
 		view.dom.appendChild(this.dom);
 
 		this.dom.addEventListener("pointerdown", this.onPointerDown);
@@ -124,6 +151,7 @@ class MinimapView {
 		this.dom.addEventListener("wheel", this.onWheel, { passive: false });
 		this.dom.addEventListener("pointerleave", this.resetStepping);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
+		this.search = new SearchWatcher(view, () => this.schedule());
 		this.schedule();
 	}
 
@@ -147,6 +175,7 @@ class MinimapView {
 		cancelAnimationFrame(this.frame);
 		window.clearTimeout(this.flashTimer);
 		this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+		this.search.destroy();
 		this.reserveSpace(false);
 		this.dom.remove();
 	}
@@ -199,12 +228,16 @@ class MinimapView {
 		this.canvas.height = Math.round(height * ratio);
 		this.canvas.style.width = `${WIDTH}px`;
 		this.canvas.style.height = `${height}px`;
-		this.renderBubbles(labels, available);
+		// Les repères de sections d'abord : leur largeur mesurée dit de combien les bulles s'écartent.
+		const sectionWidth = this.renderSections(available);
+		this.dom.style.setProperty("--mn-section-width", `${sectionWidth}px`);
+		this.renderBubbles(labels, available, sectionWidth);
 
 		const ctx = this.canvas.getContext("2d");
 		if (!ctx) return;
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		const textColor = getComputedStyle(view.contentDOM).color;
+		this.paintMatches(ctx);
 		this.paintBands(ctx, bands, textColor);
 		this.updateViewport();
 		this.placeFlash();
@@ -281,10 +314,37 @@ class MinimapView {
 	}
 
 	/**
-	 * Bulles des étiquettes, à gauche de la minipage et par-dessus le texte. Masquées en CSS tant que
-	 * la minipage n'est pas survolée, mais toujours mises en page pour pouvoir être mesurées.
+	 * Fond des blocs où apparaît le mot tapé dans la barre de recherche d'Obsidian (Ctrl+F). Peint sous
+	 * les lignes et sur toute la largeur, il déborde dans les marges : un bloc étiqueté, dont les lignes
+	 * sont opaques, y reste repérable sans perdre sa couleur.
 	 */
-	private renderBubbles(labels: Label[], maxHeight: number) {
+	private paintMatches(ctx: CanvasRenderingContext2D) {
+		const { view } = this;
+		const hits = this.search.hits(view.state);
+		if (hits.length === 0) return;
+		const spans: { top: number; bottom: number }[] = [];
+		for (const hit of hits) {
+			const top = view.lineBlockAt(hit.from).top * this.scale;
+			// Même hauteur plancher que le flash, sans quoi un paragraphe court ferait à peine un pixel.
+			const bottom = Math.max(view.lineBlockAt(hit.to).bottom * this.scale, top + MIN_FLASH_HEIGHT);
+			const last = spans[spans.length - 1];
+			// Ce plancher fait parfois chevaucher deux blocs voisins : un seul rectangle, pour que
+			// l'opacité ne double pas.
+			if (last && top < last.bottom) last.bottom = Math.max(last.bottom, bottom);
+			else spans.push({ top, bottom });
+		}
+		// Le canevas n'affiche aucun texte : styles.css lui donne pour couleur celle de la recherche.
+		ctx.fillStyle = getComputedStyle(this.canvas).color;
+		ctx.globalAlpha = SEARCH_ALPHA;
+		for (const span of spans) ctx.fillRect(0, span.top, WIDTH, span.bottom - span.top);
+	}
+
+	/**
+	 * Bulles des étiquettes, à gauche de la minipage (au-delà des repères de sections, larges de
+	 * `sectionWidth`) et par-dessus le texte. Masquées en CSS tant que la minipage n'est pas survolée,
+	 * mais toujours mises en page pour pouvoir être mesurées.
+	 */
+	private renderBubbles(labels: Label[], maxHeight: number, sectionWidth: number) {
 		while (this.bubbleEls.length < labels.length) {
 			const el = this.bubbleLayer.createDiv({ cls: "mn-bubble" });
 			el.createSpan({ cls: "mn-bubble-text" });
@@ -321,7 +381,10 @@ class MinimapView {
 			// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
 			maxSpread: Math.max(
 				0,
-				this.dom.getBoundingClientRect().left - this.view.contentDOM.getBoundingClientRect().left - BUBBLE_TAIL_SPACE
+				this.dom.getBoundingClientRect().left -
+					this.view.contentDOM.getBoundingClientRect().left -
+					sectionWidth -
+					BUBBLE_TAIL_SPACE
 			),
 			gap: BUBBLE_GAP,
 			maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75,
@@ -340,6 +403,78 @@ class MinimapView {
 			const tailY = Math.min(sizes[i].height - 6, Math.max(6, sizes[i].center - placement.top));
 			el.style.setProperty("--mn-tail-y", `${tailY}px`);
 		});
+	}
+
+	/**
+	 * Frontières de sections de la note, et contenu de leurs repères : une étoile pour un trait de
+	 * séparation ; pour un titre, son numéro dans un rond suivi du début du titre. Refaits seulement
+	 * quand le texte de la note a changé.
+	 */
+	private syncSections(): SectionBoundary[] {
+		const { doc } = this.view.state;
+		if (this.sectionDoc === doc) return this.sections;
+		this.sectionDoc = doc;
+		this.sections = allSections(this.view.state);
+		while (this.sectionEls.length < this.sections.length) {
+			const el = this.sectionLayer.createDiv({ cls: "mn-section" });
+			el.createSpan({ cls: "mn-section-badge" });
+			el.createSpan({ cls: "mn-section-title" });
+			this.sectionEls.push(el);
+		}
+		while (this.sectionEls.length > this.sections.length) this.sectionEls.pop()?.remove();
+
+		// Numérotés 1, 2… pour les titres de niveau 2, et 1.1, 1.2… pour ceux de niveau 3.
+		let chapter = 0;
+		let part = 0;
+		this.sections.forEach((section, i) => {
+			if (section.level === 2) {
+				chapter++;
+				part = 0;
+			} else if (section.level === 3) {
+				part++;
+			}
+			const el = this.sectionEls[i];
+			const badge = el.firstElementChild as HTMLElement;
+			badge.textContent = section.level === 0 ? RULE_BADGE : section.level === 2 ? String(chapter) : `${chapter}.${part}`;
+			const title = el.lastElementChild as HTMLElement;
+			title.textContent = section.title;
+			el.title = section.title;
+			el.dataset.pos = String(section.pos);
+			el.toggleClass("mn-section-rule", section.level === 0);
+		});
+		return this.sections;
+	}
+
+	/**
+	 * Place les repères de sections en colonne contre le bord gauche de la minipage, chacun centré sur
+	 * sa frontière. Comme les bulles, ils ne sont visibles qu'au survol mais toujours mis en page pour
+	 * pouvoir être mesurés. Renvoie la largeur de la colonne, dont les bulles doivent s'écarter.
+	 */
+	private renderSections(maxHeight: number): number {
+		const sections = this.syncSections();
+		// Toutes les mesures avant la moindre écriture : une seule mise en page forcée, quel que soit le
+		// nombre de repères. Celui qui ne tenait pas au dessin précédent, masqué par `visibility`, reste
+		// mesurable.
+		const sizes = this.sectionEls.map((el) => ({ width: el.offsetWidth, height: el.offsetHeight }));
+
+		// À l'échelle de la minipage, deux titres voisins tombent à quelques pixels l'un de l'autre :
+		// le second est alors repoussé sous le premier.
+		let width = 0;
+		let bottom = 0;
+		sections.forEach((section, i) => {
+			const el = this.sectionEls[i];
+			const size = sizes[i];
+			const block = this.view.lineBlockAt(section.line.from);
+			const center = (block.top + block.height / 2) * this.scale;
+			const top = Math.max(bottom, Math.min(maxHeight - size.height, Math.max(0, center - size.height / 2)));
+			const fits = top + size.height <= maxHeight;
+			el.toggleClass("mn-section-overflow", !fits);
+			if (!fits) return;
+			el.style.top = `${top}px`;
+			bottom = top + size.height + SECTION_GAP;
+			width = Math.max(width, size.width);
+		});
+		return width ? width + SECTION_BUBBLE_GAP : 0;
 	}
 
 	/** Cadre indiquant la portion de la note actuellement visible dans l'éditeur. */
@@ -363,10 +498,12 @@ class MinimapView {
 		// Le prochain cran de molette repartira d'ici, et non du paragraphe atteint avant le clic.
 		this.resetStepping();
 
-		// Un clic sur une bulle mène au début de son paragraphe, même si elle a été décalée.
-		const bubble = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble") : null;
-		if (bubble) {
-			const pos = Number(bubble.dataset.pos);
+		// Un clic sur une bulle ou sur un repère de section mène à ce qu'il désigne, même s'il a été
+		// décalé pour ne pas en recouvrir un autre.
+		const marker =
+			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
+		if (marker) {
+			const pos = Number(marker.dataset.pos);
 			this.scrollToPos(pos, true);
 			this.flashAt(pos);
 			return;

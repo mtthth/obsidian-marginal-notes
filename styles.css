@@ -97,8 +97,11 @@
 	user-select: none;
 }
 
+/* La couleur du canevas, qui n'affiche aucun texte, est celle que minimap.ts donne au fond des blocs
+   où apparaît le mot cherché (Ctrl+F) : l'accent, comme le cadre de l'occurrence dans l'éditeur. */
 .mn-minimap canvas {
 	display: block;
+	color: var(--text-accent);
 }
 
 .mn-minimap-viewport {
@@ -111,13 +114,14 @@
 	pointer-events: none;
 }
 
-/* Bulles d'étiquettes, à gauche de la minipage et par-dessus le texte, visibles seulement au
-   survol. `visibility` (et non `display`) pour que minimap.ts puisse les mesurer quand elles sont
-   masquées ; le délai avant de disparaître laisse le temps d'atteindre une bulle décalée. */
+/* Bulles d'étiquettes, à gauche de la minipage (au-delà des repères de sections, dont minimap.ts
+   donne la largeur) et par-dessus le texte, visibles seulement au survol. `visibility` (et non
+   `display`) pour que minimap.ts puisse les mesurer quand elles sont masquées ; le délai avant de
+   disparaître laisse le temps d'atteindre une bulle décalée. */
 .mn-minimap-bubbles {
 	position: absolute;
 	top: 0;
-	right: 100%;
+	right: calc(100% + var(--mn-section-width, 0px));
 	visibility: hidden;
 	opacity: 0;
 	transition: opacity 120ms ease 200ms, visibility 0s linear 320ms;
@@ -166,6 +170,99 @@
 	border-top: 5px solid transparent;
 	border-bottom: 5px solid transparent;
 	border-left: 6px solid var(--mn-bubble-bg);
+}
+
+/* Repères des frontières de sections, en colonne contre le bord gauche de la minipage, entre elle et
+   les bulles. Mêmes règles d'apparition que les bulles, pour que les deux se montrent ensemble. */
+.mn-minimap-sections {
+	position: absolute;
+	top: 0;
+	right: 100%;
+	visibility: hidden;
+	opacity: 0;
+	transition: opacity 120ms ease 200ms, visibility 0s linear 320ms;
+	pointer-events: none;
+}
+
+.mn-minimap:hover .mn-minimap-sections {
+	visibility: visible;
+	opacity: 1;
+	transition-delay: 0s;
+}
+
+.mn-section {
+	position: absolute;
+	right: 0;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	box-sizing: border-box;
+	max-width: 150px;
+	padding: 1px 7px 1px 1px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	background-color: var(--background-secondary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+.mn-section:hover {
+	color: var(--text-normal);
+}
+
+/* Le numéro dans un rond : un cercle pour « 2 », étiré en ovale pour « 2.1 ». */
+.mn-section-badge {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 4px;
+	border-radius: 999px;
+	background-color: var(--background-modifier-border);
+	color: var(--text-normal);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
+/* L'ellipse est portée par le titre, pour qu'un titre trop long ne rogne jamais le numéro. */
+.mn-section-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.mn-section-title:empty {
+	display: none;
+}
+
+/* Un trait de séparation n'a ni numéro ni titre : une étoile seule, sans rond ni pastille, que son
+   halo garde lisible par-dessus le texte. */
+.mn-section.mn-section-rule {
+	padding: 1px;
+	border-color: transparent;
+	background: none;
+	box-shadow: none;
+}
+
+.mn-section-rule .mn-section-badge {
+	background: none;
+	color: inherit;
+	font-size: 14px;
+	text-shadow: 0 0 3px var(--background-primary), 0 0 3px var(--background-primary);
+}
+
+/* Repère qui ne tient plus dans la hauteur disponible : caché, mais toujours mesurable. */
+.mn-section.mn-section-overflow {
+	visibility: hidden;
 }
 
 .mn-menu-swatch {

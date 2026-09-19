@@ -13,8 +13,11 @@ export interface ParagraphBlock {
 // nœud "Paragraph". On découpe donc le texte nous-mêmes en blocs séparés par des lignes vides,
 // en ignorant le frontmatter, les blocs de code, de maths et de commentaires.
 
-const HEADING_RE = /^\s{0,3}#{1,6}(?:\s|$)/;
+const HEADING_RE = /^\s{0,3}(#{1,6})(?:\s|$)/;
 const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+// Ligne de `=` ou de `-` qui, juste sous un paragraphe ordinaire, le souligne en titre (setext) :
+// niveau 1 pour `=`, 2 pour `-`.
+const SETEXT_RE = /^\s{0,3}(=+|-+)\s*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
 // Préfixe (titre, citation, puce, liste numérotée, case à cocher) après lequel insérer le
 // marqueur, pour ne pas casser la syntaxe de la ligne.
@@ -27,6 +30,14 @@ function markerOffset(text: string): number | null {
 	// Tableaux et en-têtes de callout : un marqueur en tête casserait leur rendu.
 	if (rest.startsWith("|") || rest.startsWith("[!")) return null;
 	return offset;
+}
+
+/**
+ * Vrai pour la première ligne d'un paragraphe ordinaire (ni titre, ni liste, ni citation) : le seul
+ * qu'un soulignement setext change en titre.
+ */
+function isPlainParagraph(text: string): boolean {
+	return PREFIX_RE.exec(text)?.[0].trim() === "";
 }
 
 /** Si la ligne ouvre un bloc à ignorer, renvoie le motif de sa ligne fermante. */
@@ -48,8 +59,15 @@ export function frontmatterLastLine(doc: Text): number {
 	return 0;
 }
 
-/** Parcourt les blocs étiquetables dans l'ordre du document ; `visit` renvoie true pour s'arrêter. */
-function forEachBlock(state: EditorState, visit: (block: ParagraphBlock) => boolean | void) {
+/**
+ * Parcourt les blocs étiquetables dans l'ordre du document ; `visit` renvoie true pour s'arrêter.
+ * `onSeparator`, s'il est fourni, reçoit en plus les traits horizontaux croisés en chemin.
+ */
+function forEachBlock(
+	state: EditorState,
+	visit: (block: ParagraphBlock) => boolean | void,
+	onSeparator?: (line: Line) => void
+) {
 	const doc = state.doc;
 	let closer: RegExp | null = null;
 	let first: Line | null = null;
@@ -80,8 +98,21 @@ function forEachBlock(state: EditorState, visit: (block: ParagraphBlock) => bool
 			continue;
 		}
 
-		if (text.trim() === "" || HR_RE.test(text)) {
+		if (text.trim() === "") {
 			if (flush()) return;
+			continue;
+		}
+
+		// Le soulignement d'un titre setext fait partie du titre : ce n'est pas un trait.
+		if (first && isPlainParagraph(first.text) && SETEXT_RE.test(text)) {
+			last = line;
+			if (flush()) return;
+			continue;
+		}
+
+		if (HR_RE.test(text)) {
+			if (flush()) return;
+			onSeparator?.(line);
 			continue;
 		}
 
@@ -145,4 +176,84 @@ export function taggedParagraphs(state: EditorState): TaggedParagraph[] {
 		if (parsed) tagged.push({ block, ...parsed });
 	}
 	return tagged;
+}
+
+export interface SectionBoundary {
+	/** Ligne du titre, ou du trait qui sépare deux sections. */
+	line: Line;
+	/** Niveau du titre (2 ou 3), ou 0 pour un trait de séparation. */
+	level: number;
+	/** Début du titre, abrégé pour tenir dans la marge ; vide pour un trait. */
+	title: string;
+	/** Où mener un clic : le texte du titre, ou ce qui suit le trait. */
+	pos: number;
+}
+
+/** Ce qu'on garde du titre d'une section : ses premiers mots, sans dépasser tant de caractères. */
+const TITLE_WORDS = 3;
+const TITLE_CHARS = 30;
+
+/** Les premiers mots d'un titre, suivis de points de suspension s'il en reste. */
+function shortTitle(text: string): string {
+	// Les dièses d'un titre vide, que PREFIX_RE (qui réclame une espace) n'a pas écartés, et ceux
+	// dont on referme parfois un titre.
+	const full = text
+		.replace(/^#{1,6}(?:\s+|$)/, "")
+		.replace(/\s+#+\s*$/, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	let short = full.split(" ").slice(0, TITLE_WORDS).join(" ");
+	if (short.length > TITLE_CHARS) short = short.slice(0, TITLE_CHARS).trimEnd();
+	return short.length < full.length ? short + "…" : short;
+}
+
+/**
+ * Niveau d'un bloc titre, `## Titre` ou `Titre` souligné (setext), et la fin du texte de ce titre ;
+ * null si le bloc n'est pas un titre.
+ */
+function headingOf(doc: Text, block: ParagraphBlock): { level: number; textEnd: number } | null {
+	const atx = HEADING_RE.exec(block.firstLine.text);
+	if (atx) return { level: atx[1].length, textEnd: block.to };
+	// forEachBlock ne termine un paragraphe ordinaire sur une ligne non vide qu'à son soulignement.
+	const underline = doc.lineAt(block.to);
+	if (underline.number === block.firstLine.number || !isPlainParagraph(block.firstLine.text)) return null;
+	const setext = SETEXT_RE.exec(underline.text);
+	return setext ? { level: setext[1][0] === "=" ? 1 : 2, textEnd: underline.from - 1 } : null;
+}
+
+/**
+ * Les frontières de sections de la note, dans l'ordre : les titres de niveau 2 et 3, et les traits
+ * de séparation (`***`, `---`, `___`). Un trait ne désigne aucun texte : on y fait mener à ce qui
+ * le suit, c'est-à-dire au début de la section qu'il ouvre.
+ */
+export function allSections(state: EditorState): SectionBoundary[] {
+	const { doc } = state;
+	const sections: SectionBoundary[] = [];
+	let pending: SectionBoundary[] = [];
+	forEachBlock(
+		state,
+		(block) => {
+			const pos = textStart(block);
+			// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
+			for (const rule of pending) if (rule.pos === block.from) rule.pos = pos;
+			pending = [];
+			const heading = headingOf(doc, block);
+			if (heading && (heading.level === 2 || heading.level === 3)) {
+				const title = shortTitle(doc.sliceString(pos, heading.textEnd));
+				sections.push({ line: block.firstLine, level: heading.level, title, pos });
+			}
+		},
+		(line) => {
+			// La première ligne qui suit le trait, quelle qu'elle soit : un encadré, un tableau ou un bloc
+			// de code, que forEachBlock ne visite pas, ouvrent la section aussi bien qu'un paragraphe.
+			// En fin de note, faute de mieux, le trait renvoie à lui-même.
+			let next = line.number + 1;
+			while (next <= doc.lines && (doc.line(next).text.trim() === "" || HR_RE.test(doc.line(next).text))) next++;
+			const pos = next <= doc.lines ? doc.line(next).from : line.from;
+			const rule: SectionBoundary = { line, level: 0, title: "", pos };
+			sections.push(rule);
+			pending.push(rule);
+		}
+	);
+	return sections;
 }
