@@ -6,11 +6,12 @@ import { createMinimap } from "./minimap";
 import { flashField } from "./flash";
 import { createCenterFlash } from "./centerFlash";
 import { searchHighlighter } from "./search";
-import { paragraphAt } from "./paragraphs";
+import { markerText, paragraphAt } from "./paragraphs";
 import { openTagMenu } from "./menu";
 import { centerOnClick, jumpToTag } from "./navigation";
 import { createReadingPostProcessor } from "./reading";
-import { refreshMarkersEffect } from "./model";
+import { parseMarker, refreshMarkersEffect } from "./model";
+import { toggleCorner } from "./tagEdit";
 
 // Obsidian n'expose pas officiellement la vue CodeMirror 6 sous-jacente sur Editor, mais
 // `editor.cm` est l'accès de fait stable utilisé par l'écosystème des plugins pour l'obtenir.
@@ -41,9 +42,15 @@ export default class MarginalNotesPlugin extends Plugin {
 		this.registerMarkdownPostProcessor(createReadingPostProcessor(this));
 		this.addSettingTab(new MarginalNotesSettingTab(this.app, this));
 
-		this.registerDomEvent(document, "contextmenu", (evt: MouseEvent) => {
-			this.lastContextMenuPos = { x: evt.clientX, y: evt.clientY };
-		});
+		// En phase de capture, pour que la position soit à jour quand l'éditeur construit son menu.
+		this.registerDomEvent(
+			document,
+			"contextmenu",
+			(evt: MouseEvent) => {
+				this.lastContextMenuPos = { x: evt.clientX, y: evt.clientY };
+			},
+			{ capture: true }
+		);
 
 		this.addCommand({
 			id: "tag-current-paragraph",
@@ -74,27 +81,46 @@ export default class MarginalNotesPlugin extends Plugin {
 
 		this.registerEvent(
 			this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
+				const cmView = getCmView(editor);
+				if (!cmView) return;
+				const pos =
+					(this.lastContextMenuPos && cmView.posAtCoords(this.lastContextMenuPos)) ??
+					cmView.state.selection.main.head;
 				menu.addItem((item) => {
 					item
 						.setTitle("Étiqueter le paragraphe courant")
 						.setIcon("tag")
-						.onClick(() => {
-							const cmView = getCmView(editor);
-							if (!cmView) return;
-							const pos = this.lastContextMenuPos && cmView.posAtCoords(this.lastContextMenuPos);
-							this.tagParagraphAt(cmView, pos ?? cmView.state.selection.main.head);
-						});
+						.onClick(() => this.tagParagraphAt(cmView, pos));
+				});
+				// Le titre dit ce que fera le clic : le paragraphe visé est-il déjà corné ?
+				const block = paragraphAt(cmView.state, pos);
+				const cornered = block ? parseMarker(markerText(block))?.tag.corner : false;
+				menu.addItem((item) => {
+					item
+						.setTitle(cornered ? "Retirer la corne" : "Corner la page")
+						.setIcon("sticky-note")
+						.onClick(() => this.toggleCornerAt(cmView, pos));
 				});
 			})
 		);
 	}
 
-	private tagParagraphAt(cmView: EditorView, pos: number) {
+	/** Paragraphe à la position, ou null après avoir prévenu qu'il n'y en a pas. */
+	private paragraphOrNotice(cmView: EditorView, pos: number) {
 		const block = paragraphAt(cmView.state, pos);
-		if (!block) {
-			new Notice("Placez le curseur dans un paragraphe.");
-			return;
-		}
+		if (!block) new Notice("Placez le curseur dans un paragraphe.");
+		return block;
+	}
+
+	/** Corne le paragraphe, ou retire sa corne : le même repère que le clic droit dans la minipage. */
+	private toggleCornerAt(cmView: EditorView, pos: number) {
+		const block = this.paragraphOrNotice(cmView, pos);
+		if (block) toggleCorner(cmView, block);
+	}
+
+	private tagParagraphAt(cmView: EditorView, pos: number) {
+		const block = this.paragraphOrNotice(cmView, pos);
+		if (!block) return;
 
 		const coords = cmView.coordsAtPos(pos);
 		const rect = cmView.dom.getBoundingClientRect();

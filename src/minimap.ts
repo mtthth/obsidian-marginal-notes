@@ -549,8 +549,8 @@ class MinimapView {
 
 	/**
 	 * Clic droit : corner ou décorner le paragraphe visé, sans s'y rendre — voir la corne apparaître
-	 * suffit. L'événement s'arrête ici : il n'a ni à ouvrir le menu contextuel d'Obsidian, ni à laisser
-	 * main.ts retenir sa position, qui ne désigne aucun endroit du texte.
+	 * suffit. L'événement s'arrête ici : il n'a pas à ouvrir le menu contextuel d'Obsidian. (main.ts
+	 * retient tout de même sa position, en phase de capture ; aucun menu d'éditeur ne s'en servira.)
 	 */
 	private onContextMenu = (event: MouseEvent) => {
 		event.preventDefault();
