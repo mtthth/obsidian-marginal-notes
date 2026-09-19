@@ -368,6 +368,8 @@ class MinimapView {
 				});
 			}
 		}
+		// La dernière ligne de la note n'est suivie d'aucune ligne vide, mais achève elle aussi un paragraphe.
+		if (last) last.lastRowFill = Math.min(last.lastRowFill, RUN_END_FILL_MAX);
 		return { bands, labels, corners };
 	}
 
@@ -398,7 +400,11 @@ class MinimapView {
 				const margin = spaced ? (rowHeight - barHeight) / 2 : 0;
 				const top = snap(rowTop + margin);
 				// Au moins un pixel d'écran, même quand la barre en vaut moins.
-				const bottom = Math.max(snap(rowBottom - margin), top + 1 / ratio);
+				let bottom = Math.max(snap(rowBottom - margin), top + 1 / ratio);
+				// Même plancher que l'aplat : un court paragraphe étiqueté ne descend pas sous MIN_ROW_HEIGHT.
+				if (band.color && band.rows === 1 && !spaced) {
+					bottom = Math.max(bottom, top + Math.ceil(MIN_ROW_HEIGHT * ratio) / ratio);
+				}
 				ctx.fillRect(PADDING_X + indent, top, barWidth * fill - indent, bottom - top);
 			}
 		}
