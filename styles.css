@@ -86,6 +86,24 @@
 	box-shadow: 0 0 0 4px color-mix(in srgb, var(--mn-color) var(--mn-bg-alpha, 20%), transparent);
 }
 
+/* Chaque occurrence du mot cherché (Ctrl+F), encadrée dans le texte à la couleur d'accent, comme son
+   bloc dans la minipage. Une ombre pleine plutôt qu'une bordure, pour ne pas décaler le texte. */
+.markdown-source-view.mod-cm6 .mn-search-match {
+	border-radius: 3px;
+	background-color: color-mix(in srgb, var(--text-accent) 20%, transparent);
+	box-shadow: 0 0 0 2px var(--text-accent);
+	-webkit-box-decoration-break: clone;
+	box-decoration-break: clone;
+}
+
+/* L'occurrence courante, celle où mènent Entrée et F3, qu'Obsidian cerne lui-même d'un trait plus
+   large : un fond plus soutenu la détache des autres. Selon l'ordre des extensions, la décoration
+   d'Obsidian entoure la nôtre ou l'inverse, d'où les deux sélecteurs. */
+.markdown-source-view.mod-cm6 .obsidian-search-match-highlight .mn-search-match,
+.markdown-source-view.mod-cm6 .mn-search-match:has(.obsidian-search-match-highlight) {
+	background-color: color-mix(in srgb, var(--text-accent) 50%, transparent);
+}
+
 /* Minipage : vue d'ensemble de la note, en haut à droite de l'éditeur, dans la largeur que
    minimap.ts réserve en marge de la zone de défilement (sa barre de défilement reste à gauche). */
 .mn-minimap {
