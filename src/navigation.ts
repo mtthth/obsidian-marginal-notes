@@ -2,6 +2,7 @@ import { Notice } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { paragraphAt, TaggedParagraph, taggedParagraphs, textStart } from "./paragraphs";
 import { flashParagraph } from "./flash";
+import type MarginalNotesPlugin from "./main";
 
 /** Déplacement du pointeur toléré entre l'appui et le relâchement pour que ça reste un clic. */
 const CLICK_SLOP = 4;
@@ -57,7 +58,7 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
  * curseur, lui, reste là où on l'a posé. CM6 pose ces écouteurs sur contentDOM : les clics de la
  * gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
  */
-export function centerOnClick() {
+export function centerOnClick(plugin: MarginalNotesPlugin) {
 	let downAt: { x: number; y: number } | null = null;
 	return EditorView.domEventHandlers({
 		mousedown: (event) => {
@@ -67,7 +68,7 @@ export function centerOnClick() {
 			// Un glissement (sélection) se termine aussi par un clic, mais ne doit pas déplacer la vue.
 			const dragged = !downAt || Math.hypot(event.clientX - downAt.x, event.clientY - downAt.y) > CLICK_SLOP;
 			downAt = null;
-			if (dragged) return;
+			if (dragged || !plugin.settings.centerOnClick) return;
 			const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
 			const block = pos === null ? null : paragraphAt(view.state, pos);
 			if (!block) return;

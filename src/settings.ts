@@ -7,12 +7,15 @@ export interface MarginalNotesSettings {
 	/** Transparence (en %) du fond coloré des paragraphes étiquetés : 100 = pas de fond. */
 	backgroundTransparency: number;
 	showMinimap: boolean;
+	/** Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. */
+	centerOnClick: boolean;
 }
 
 export const DEFAULT_SETTINGS: MarginalNotesSettings = {
 	palette: DEFAULT_PALETTE.map((p) => ({ ...p })),
 	backgroundTransparency: 80,
 	showMinimap: true,
+	centerOnClick: true,
 };
 
 export class MarginalNotesSettingTab extends PluginSettingTab {
@@ -87,6 +90,17 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 						this.plugin.refreshAllEditors();
 					})
+			);
+
+		new Setting(containerEl).setName("Clic dans le texte").setHeading();
+		new Setting(containerEl)
+			.setName("Centrer le paragraphe au clic")
+			.setDesc("Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. Désactivé, un clic ne fait que poser le curseur, sans déplacer la vue.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.centerOnClick).onChange(async (value) => {
+					this.plugin.settings.centerOnClick = value;
+					await this.plugin.saveSettings();
+				})
 			);
 
 		new Setting(containerEl).setName("Minipage").setHeading();

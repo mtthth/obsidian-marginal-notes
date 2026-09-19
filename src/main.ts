@@ -33,7 +33,7 @@ export default class MarginalNotesPlugin extends Plugin {
 			flashField,
 			createGutter(this, tagField),
 			createMinimap(this, tagField),
-			centerOnClick(),
+			centerOnClick(this),
 			createCenterFlash(),
 		]);
 		this.registerMarkdownPostProcessor(createReadingPostProcessor(this));
