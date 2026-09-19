@@ -14,6 +14,7 @@ import {
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles } from "./bubbleLayout";
+import { HeightMap, type HeightGap } from "./heightMap";
 import { SearchWatcher } from "./search";
 import { toggleCorner } from "./tagEdit";
 import type { TagDecorations } from "./gutter";
@@ -25,8 +26,26 @@ const WIDTH = Platform.isMobile ? 40 : 80;
 const PADDING_X = Platform.isMobile ? 4 : 8;
 /** Hauteur maximale d'une ligne affichée, en pixels : une note courte n'est pas agrandie au-delà. */
 const MAX_ROW_HEIGHT = 3;
-/** En dessous de cette hauteur de ligne, un bloc est dessiné d'un seul aplat plutôt que ligne par ligne. */
+/**
+ * En dessous de cette hauteur de ligne, il n'y a plus de place pour un interligne. « Bloc plein » dessine
+ * alors un bloc d'un seul aplat ; « Paragraphes » des rangées pleines qui se touchent. C'est aussi la
+ * hauteur plancher d'un court paragraphe étiqueté.
+ */
 const MIN_ROW_HEIGHT = 2;
+/**
+ * Style « Paragraphes » : en dessous de cette hauteur, une rangée n'est plus qu'un filet de moins d'un
+ * pixel, la forme d'un bloc n'y est plus lisible et il est dessiné d'un seul aplat. La minipage garde
+ * alors les lignes vides de la note, pour séparer ses paragraphes.
+ */
+const MIN_SHAPE_ROW_HEIGHT = 1;
+/**
+ * Style « Paragraphes » : sans ligne vide entre deux paragraphes, c'est leur forme qui les sépare, comme
+ * dans un texte imprimé : une dernière rangée qui n'atteint jamais la marge, et, au réglage, une
+ * première rangée en retrait (l'alinéa).
+ */
+const INDENT_X = PADDING_X / 2;
+/** Part de la largeur que peut occuper la dernière rangée d'un paragraphe : au-delà, elle ne se verrait plus écourtée. */
+const RUN_END_FILL_MAX = 0.85;
 /** Opacité des lignes de texte ordinaires, et de celles du frontmatter YAML, dessinées plus claires. */
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
@@ -58,6 +77,8 @@ interface Band {
 	rows: number;
 	/** Part de la largeur occupée par la dernière ligne à l'écran du bloc. */
 	lastRowFill: number;
+	/** Le bloc ouvre un paragraphe (rien avant lui, ou une ligne vide) : sa première rangée est en retrait. */
+	startsRun: boolean;
 	color: string | undefined;
 	alpha: number;
 }
@@ -102,6 +123,11 @@ function scrollbarInsets(el: HTMLElement): { top: number; bottom: number } {
 // plusieurs lignes à l'écran, y reste proportionnellement haut. Ces hauteurs sont estimées pour
 // les lignes jamais affichées et se corrigent au fil du défilement, d'où les redessins sur
 // changement de géométrie.
+//
+// En style « Paragraphes », les lignes vides n'y ont pas de place : leur hauteur est retirée (voir
+// HeightMap), ce qui agrandit d'autant l'échelle. Tout ce qui se lit dans le document passe donc par
+// `mapY`, et tout ce qui se lit dans la minipage (un clic) par `docY` ; en « Bloc plein », ces deux
+// correspondances ne font que l'échelle.
 class MinimapView {
 	private dom: HTMLElement;
 	private canvas: HTMLCanvasElement;
@@ -109,6 +135,8 @@ class MinimapView {
 	private frame = 0;
 	/** Pixels de minipage par pixel de document, recalculé à chaque dessin (0 si masquée). */
 	private scale = 0;
+	/** Hauteurs du document telles que la minipage les dessine, recalculées à chaque dessin. */
+	private heights = HeightMap.identity(0);
 	private contentHeight = 0;
 	private bubbleLayer: HTMLElement;
 	private bubbleEls: HTMLElement[] = [];
@@ -221,8 +249,9 @@ class MinimapView {
 		const lineHeight = view.defaultLineHeight;
 		const insets = scrollbarInsets(view.dom);
 		const available = Math.max(1, editorHeight - insets.top - insets.bottom);
-		this.scale = Math.min(available / docHeight, MAX_ROW_HEIGHT / lineHeight);
-		this.contentHeight = Math.floor(docHeight * this.scale);
+		this.heights = this.chooseHeights(docHeight, available, lineHeight);
+		this.scale = Math.min(available / this.heights.height, MAX_ROW_HEIGHT / lineHeight);
+		this.contentHeight = Math.floor(this.heights.height * this.scale);
 
 		const { bands, labels, corners } = this.layout(lineHeight);
 
@@ -244,10 +273,47 @@ class MinimapView {
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		const textColor = getComputedStyle(view.contentDOM).color;
 		this.paintMatches(ctx);
-		this.paintBands(ctx, bands, textColor);
+		this.paintBands(ctx, bands, textColor, ratio);
 		this.paintCorners(ctx, corners);
 		this.updateViewport();
 		this.placeFlash();
+	}
+
+	/**
+	 * Hauteurs de la minipage : celles du document moins ses lignes vides, sauf si la note est si longue
+	 * que ses rangées, même ainsi agrandies, resteraient sous MIN_SHAPE_ROW_HEIGHT. Leur forme ne
+	 * distinguerait alors plus les paragraphes : on garde l'espace qui les sépare.
+	 */
+	private chooseHeights(docHeight: number, available: number, lineHeight: number): HeightMap {
+		if (!this.byParagraph) return HeightMap.identity(docHeight);
+		const { view } = this;
+		const doc = view.state.doc;
+		const gaps: HeightGap[] = [];
+		for (let n = 1; n <= doc.lines; n++) {
+			const line = doc.line(n);
+			if (line.text.trim() !== "") continue;
+			const block = view.lineBlockAt(line.from);
+			// Une ligne vide repliée ou remplacée partage le bloc d'autres lignes, dont la hauteur reste.
+			if (block.from === line.from && block.to === line.to) gaps.push({ top: block.top, height: block.height });
+		}
+		const compact = new HeightMap(gaps, docHeight);
+		const scale = Math.min(available / compact.height, MAX_ROW_HEIGHT / lineHeight);
+		return compact.height > 0 && scale * lineHeight >= MIN_SHAPE_ROW_HEIGHT ? compact : HeightMap.identity(docHeight);
+	}
+
+	/** Réglage « Paragraphes » (sans ligne vide, chaque paragraphe se reconnaît à sa forme) plutôt que « Bloc plein ». */
+	private get byParagraph(): boolean {
+		return this.plugin.settings.minimapStyle !== "block";
+	}
+
+	/** Hauteur, dans la minipage, du point du document à la hauteur `y`. */
+	private mapY(y: number): number {
+		return this.heights.compress(y) * this.scale;
+	}
+
+	/** Hauteur, dans le document, du point de la minipage à la hauteur `y`. */
+	private docY(y: number): number {
+		return this.heights.expand(y / this.scale);
 	}
 
 	/** Bandes de texte, étiquettes et pages cornées de la note, positionnées à l'échelle courante. */
@@ -262,36 +328,51 @@ class MinimapView {
 		/** Hauteurs, dans la minipage, des coins repliés à dessiner. */
 		const corners: number[] = [];
 		let t = 0;
+		// Un paragraphe est une suite de lignes non vides : la ligne vide qui suit son dernier bloc
+		// l'achève, celle qui précède son premier l'ouvre.
+		let last: Band | null = null;
+		let afterBlank = true;
+		const byParagraph = this.byParagraph;
 
 		for (let n = 1; n <= doc.lines; n++) {
 			const line = doc.line(n);
-			if (line.text.trim() === "") continue;
+			if (line.text.trim() === "") {
+				// Même sans ligne vide dessinée, la dernière rangée se lit comme la fin d'un paragraphe.
+				if (last && byParagraph) last.lastRowFill = Math.min(last.lastRowFill, RUN_END_FILL_MAX);
+				last = null;
+				afterBlank = true;
+				continue;
+			}
 			const block = view.lineBlockAt(line.from);
 			// Une ligne repliée ou remplacée par un widget partage le bloc d'une ligne précédente.
 			if (block.from !== line.from) continue;
+			const startsRun = afterBlank;
+			afterBlank = false;
 
 			while (t < tagged.length && tagged[t].block.to < line.from) t++;
 			const zone = t < tagged.length && tagged[t].block.from <= line.from ? tagged[t] : undefined;
 			const color = this.plugin.paletteColor(zone?.tag.color);
-			const top = block.top * this.scale;
+			const top = this.mapY(block.top);
 			const length = block.to - block.from;
 			// Nombre de lignes à l'écran : d'après la hauteur du bloc, sans dépasser ce que la
 			// longueur du texte justifie (un titre est plus haut sans être plus long).
 			const rows = Math.max(1, Math.min(Math.round(block.height / lineHeight), Math.ceil(length / charsPerRow)));
-			bands.push({
+			last = {
 				top,
 				height: block.height * this.scale,
 				rows,
 				lastRowFill: Math.min(1, Math.max(0.15, (length - (rows - 1) * charsPerRow) / charsPerRow)),
+				startsRun,
 				color,
 				alpha: color ? 1 : n <= frontmatterEnd ? FRONTMATTER_ALPHA : TEXT_ALPHA,
-			});
+			};
+			bands.push(last);
 
 			if (zone?.tag.corner && zone.block.from === line.from) corners.push(top);
 
 			if (zone?.tag.text && zone.block.from === line.from) {
 				// Bulle centrée sur une zone fine, alignée sur le haut d'une zone plus haute qu'elle.
-				const zoneHeight = (view.lineBlockAt(zone.block.to).bottom - block.top) * this.scale;
+				const zoneHeight = this.mapY(view.lineBlockAt(zone.block.to).bottom) - top;
 				labels.push({
 					center: top + Math.min(zoneHeight, BUBBLE_HEIGHT_ESTIMATE) / 2,
 					text: zone.tag.text,
@@ -300,26 +381,77 @@ class MinimapView {
 				});
 			}
 		}
+		// La dernière ligne de la note n'est suivie d'aucune ligne vide, mais achève elle aussi un paragraphe.
+		if (last && byParagraph) last.lastRowFill = Math.min(last.lastRowFill, RUN_END_FILL_MAX);
 		return { bands, labels, corners };
 	}
 
-	private paintBands(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string) {
+	private paintBands(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string, ratio: number) {
+		if (this.byParagraph) this.paintParagraphs(ctx, bands, textColor, ratio);
+		else this.paintBlocks(ctx, bands, textColor);
+	}
+
+	/** Un aplat, avec une hauteur plancher pour qu'un court paragraphe étiqueté reste visible même dans une longue note. */
+	private fillFlat(ctx: CanvasRenderingContext2D, band: Band) {
+		const minHeight = band.color ? MIN_ROW_HEIGHT : 1;
+		ctx.fillRect(PADDING_X, band.top, WIDTH - 2 * PADDING_X, Math.max(band.height, minHeight));
+	}
+
+	/** Style « Bloc plein » : un aplat par bloc dès que ses lignes seraient trop serrées pour se distinguer. */
+	private paintBlocks(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string) {
 		const barWidth = WIDTH - 2 * PADDING_X;
 		for (const band of bands) {
 			ctx.fillStyle = band.color ?? textColor;
 			ctx.globalAlpha = band.alpha;
 			const rowHeight = band.height / band.rows;
 			if (rowHeight < MIN_ROW_HEIGHT) {
-				// Trop comprimé pour distinguer les lignes : un aplat, avec une hauteur plancher pour
-				// qu'un court paragraphe étiqueté reste visible même dans une longue note.
-				const minHeight = band.color ? MIN_ROW_HEIGHT : 1;
-				ctx.fillRect(PADDING_X, band.top, barWidth, Math.max(band.height, minHeight));
+				this.fillFlat(ctx, band);
 				continue;
 			}
 			const barHeight = rowHeight * 0.6;
 			for (let r = 0; r < band.rows; r++) {
 				const fill = r < band.rows - 1 ? 1 : band.lastRowFill;
 				ctx.fillRect(PADDING_X, band.top + r * rowHeight + (rowHeight - barHeight) / 2, barWidth * fill, barHeight);
+			}
+		}
+	}
+
+	/**
+	 * Style « Paragraphes » : les rangées se dessinent jusqu'à un pixel de haut, et le paragraphe se
+	 * reconnaît à sa forme (voir INDENT_X et RUN_END_FILL_MAX).
+	 */
+	private paintParagraphs(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string, ratio: number) {
+		const barWidth = WIDTH - 2 * PADDING_X;
+		const indented = this.plugin.settings.minimapIndent;
+		// Ordonnée ramenée sur un pixel de l'écran : autrement, les rangées de un ou deux pixels se
+		// dessineraient en lignes alternativement pâles et foncées, bordées d'un halo.
+		const snap = (y: number) => Math.round(y * ratio) / ratio;
+		for (const band of bands) {
+			ctx.fillStyle = band.color ?? textColor;
+			ctx.globalAlpha = band.alpha;
+			const rowHeight = band.height / band.rows;
+			if (rowHeight < MIN_SHAPE_ROW_HEIGHT) {
+				// Trop comprimé pour distinguer les lignes.
+				this.fillFlat(ctx, band);
+				continue;
+			}
+			// Assez haute, une rangée est une barre entourée d'interligne ; sinon les rangées se touchent.
+			const spaced = rowHeight >= MIN_ROW_HEIGHT;
+			const barHeight = rowHeight * 0.6;
+			for (let r = 0; r < band.rows; r++) {
+				const indent = indented && band.startsRun && r === 0 ? INDENT_X : 0;
+				const fill = r < band.rows - 1 ? 1 : band.lastRowFill;
+				const rowTop = band.top + r * rowHeight;
+				const rowBottom = band.top + (r + 1) * rowHeight;
+				const margin = spaced ? (rowHeight - barHeight) / 2 : 0;
+				const top = snap(rowTop + margin);
+				// Au moins un pixel d'écran, même quand la barre en vaut moins.
+				let bottom = Math.max(snap(rowBottom - margin), top + 1 / ratio);
+				// Même plancher que l'aplat : un court paragraphe étiqueté ne descend pas sous MIN_ROW_HEIGHT.
+				if (band.color && band.rows === 1 && !spaced) {
+					bottom = Math.max(bottom, top + Math.ceil(MIN_ROW_HEIGHT * ratio) / ratio);
+				}
+				ctx.fillRect(PADDING_X + indent, top, barWidth * fill - indent, bottom - top);
 			}
 		}
 	}
@@ -335,9 +467,9 @@ class MinimapView {
 		if (hits.length === 0) return;
 		const spans: { top: number; bottom: number }[] = [];
 		for (const hit of hits) {
-			const top = view.lineBlockAt(hit.from).top * this.scale;
+			const top = this.mapY(view.lineBlockAt(hit.from).top);
 			// Même hauteur plancher que le flash, sans quoi un paragraphe court ferait à peine un pixel.
-			const bottom = Math.max(view.lineBlockAt(hit.to).bottom * this.scale, top + MIN_FLASH_HEIGHT);
+			const bottom = Math.max(this.mapY(view.lineBlockAt(hit.to).bottom), top + MIN_FLASH_HEIGHT);
 			const last = spans[spans.length - 1];
 			// Ce plancher fait parfois chevaucher deux blocs voisins : un seul rectangle, pour que
 			// l'opacité ne double pas.
@@ -498,7 +630,7 @@ class MinimapView {
 			const el = this.sectionEls[i];
 			const size = sizes[i];
 			const block = this.view.lineBlockAt(section.line.from);
-			const center = (block.top + block.height / 2) * this.scale;
+			const center = this.mapY(block.top + block.height / 2);
 			const top = Math.max(bottom, Math.min(maxHeight - size.height, Math.max(0, center - size.height / 2)));
 			const fits = top + size.height <= maxHeight;
 			el.toggleClass("mn-section-overflow", !fits);
@@ -516,8 +648,8 @@ class MinimapView {
 		const { view } = this;
 		const mapHeight = this.contentHeight;
 		const scrolled = view.scrollDOM.getBoundingClientRect().top - view.documentTop;
-		const top = Math.min(mapHeight, Math.max(0, scrolled * this.scale));
-		const bottom = Math.min(mapHeight, Math.max(0, (scrolled + view.scrollDOM.clientHeight) * this.scale));
+		const top = Math.min(mapHeight, Math.max(0, this.mapY(scrolled)));
+		const bottom = Math.min(mapHeight, Math.max(0, this.mapY(scrolled + view.scrollDOM.clientHeight)));
 		this.viewportEl.style.top = `${top}px`;
 		this.viewportEl.style.height = `${bottom - top}px`;
 	}
@@ -652,8 +784,8 @@ class MinimapView {
 		const flashed = this.flashed;
 		if (!flashed || !this.scale) return;
 		const { view } = this;
-		const top = view.lineBlockAt(flashed.from).top * this.scale;
-		const bottom = view.lineBlockAt(flashed.to).bottom * this.scale;
+		const top = this.mapY(view.lineBlockAt(flashed.from).top);
+		const bottom = this.mapY(view.lineBlockAt(flashed.to).bottom);
 		this.flashEl.style.top = `${top}px`;
 		this.flashEl.style.height = `${Math.max(bottom - top, MIN_FLASH_HEIGHT)}px`;
 	}
@@ -678,7 +810,7 @@ class MinimapView {
 	private blockAtY(clientY: number) {
 		const { view } = this;
 		const docHeight = view.lineBlockAt(view.state.doc.length).bottom;
-		const y = (clientY - this.canvas.getBoundingClientRect().top) / this.scale;
+		const y = this.docY(clientY - this.canvas.getBoundingClientRect().top);
 		const height = Math.min(docHeight, Math.max(0, y));
 		return { block: view.lineBlockAtHeight(height), height };
 	}

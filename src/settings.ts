@@ -2,11 +2,20 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import { DEFAULT_PALETTE, PaletteColor } from "./model";
 import type MarginalNotesPlugin from "./main";
 
+/**
+ * Dessin de la minipage : « block », des blocs pleins que sépare la ligne vide de la note ; « paragraphs »,
+ * sans ligne vide, chaque paragraphe se reconnaissant à sa forme.
+ */
+export type MinimapStyle = "block" | "paragraphs";
+
 export interface MarginalNotesSettings {
 	palette: PaletteColor[];
 	/** Transparence (en %) du fond coloré des paragraphes étiquetés : 100 = pas de fond. */
 	backgroundTransparency: number;
 	showMinimap: boolean;
+	minimapStyle: MinimapStyle;
+	/** Minipage en « paragraphs » : la première ligne de chaque paragraphe est en retrait. */
+	minimapIndent: boolean;
 	/** Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. */
 	centerOnClick: boolean;
 }
@@ -15,6 +24,8 @@ export const DEFAULT_SETTINGS: MarginalNotesSettings = {
 	palette: DEFAULT_PALETTE.map((p) => ({ ...p })),
 	backgroundTransparency: 80,
 	showMinimap: true,
+	minimapStyle: "paragraphs",
+	minimapIndent: true,
 	centerOnClick: true,
 };
 
@@ -114,5 +125,36 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 					this.plugin.refreshAllEditors();
 				})
 			);
+
+		// L'alinéa n'a de sens qu'en style « paragraphes » : son réglage se masque dans l'autre.
+		let indentSetting: Setting;
+		new Setting(containerEl)
+			.setName("Style de la minipage")
+			.setDesc(
+				"Bloc plein : un aplat par bloc de texte, que sépare la ligne vide de la note. Paragraphes : les lignes vides disparaissent et la minipage grandit d'autant ; chaque paragraphe se reconnaît à sa dernière ligne, plus courte. Sur une note très longue, les lignes vides sont conservées."
+			)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("block", "Bloc plein")
+					.addOption("paragraphs", "Paragraphes")
+					.setValue(this.plugin.settings.minimapStyle)
+					.onChange(async (value) => {
+						this.plugin.settings.minimapStyle = value === "block" ? "block" : "paragraphs";
+						await this.plugin.saveSettings();
+						indentSetting.settingEl.toggle(this.plugin.settings.minimapStyle === "paragraphs");
+						this.plugin.refreshAllEditors();
+					})
+			);
+		indentSetting = new Setting(containerEl)
+			.setName("Alinéa")
+			.setDesc("La première ligne de chaque paragraphe est en retrait, comme dans un texte imprimé.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.minimapIndent).onChange(async (value) => {
+					this.plugin.settings.minimapIndent = value;
+					await this.plugin.saveSettings();
+					this.plugin.refreshAllEditors();
+				})
+			);
+		indentSetting.settingEl.toggle(this.plugin.settings.minimapStyle === "paragraphs");
 	}
 }
