@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { hasLabel } from "./model";
 import { paragraphAt, TaggedParagraph, taggedParagraphs, textStart } from "./paragraphs";
 import { flashParagraph } from "./flash";
 import type MarginalNotesPlugin from "./main";
@@ -16,11 +17,25 @@ const CLICK_SLOP = 4;
 const centred = new WeakMap<EditorView, number>();
 
 /**
+ * Vues où l'utilisateur vient de faire défiler le texte lui-même. Y cliquer ne centre rien : il est
+ * allé jusque-là exprès, pour y chercher quelque chose, et la vue doit rester là où il l'a posée.
+ * Le drapeau se consomme à ce clic ; la suite retrouve le comportement ordinaire.
+ */
+const scrolledTo = new WeakSet<EditorView>();
+
+/**
  * Retient le paragraphe sur lequel la vue vient d'être centrée, d'où que vienne le centrage : la
  * minipage y mène autant qu'un clic dans le texte, et y arriver doit dispenser de l'y ramener.
  */
 export function rememberCentred(view: EditorView, from: number) {
 	centred.set(view, from);
+	// La vue vient d'être placée pour lui : ce n'est plus lui qui a fait défiler jusque-là.
+	scrolledTo.delete(view);
+}
+
+/** Signale un défilement fait à la main, par la molette ou au doigt. */
+export function rememberScrolled(view: EditorView) {
+	scrolledTo.add(view);
 }
 
 /**
@@ -38,7 +53,8 @@ export function findTagTarget(tagged: TaggedParagraph[], head: number, direction
 
 /** Place le curseur au début du texte du paragraphe étiqueté suivant ou précédent. */
 export function jumpToTag(view: EditorView, direction: 1 | -1) {
-	const target = findTagTarget(taggedParagraphs(view.state), view.state.selection.main.head, direction);
+	const labelled = taggedParagraphs(view.state).filter((t) => hasLabel(t.tag));
+	const target = findTagTarget(labelled, view.state.selection.main.head, direction);
 	if (!target) {
 		new Notice("Aucune étiquette dans cette note.");
 		return;
@@ -73,9 +89,10 @@ function unreadDomSelection(view: EditorView): EditorSelection | undefined {
 
 /**
  * Extension : le premier clic dans un paragraphe le centre et le fait clignoter, comme un clic dans
- * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Le
- * curseur, lui, reste là où on l'a posé. CM6 pose ces écouteurs sur contentDOM : les clics de la
- * gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
+ * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Sauf
+ * quand on vient d'y arriver en faisant défiler soi-même : le clic adopte alors le paragraphe sans
+ * rien déplacer. Le curseur, lui, reste toujours là où on l'a posé. CM6 pose ces écouteurs sur
+ * contentDOM : les clics de la gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
  */
 export function centerOnClick(plugin: MarginalNotesPlugin) {
 	let downAt: { x: number; y: number } | null = null;
@@ -93,7 +110,11 @@ export function centerOnClick(plugin: MarginalNotesPlugin) {
 			if (!block) return;
 			// Déjà celui du clic précédent : on y travaille, rien ne doit remuer.
 			if (centred.get(view) === block.from) return;
+			// Arrivé là en faisant défiler : le paragraphe devient celui où l'on travaille, mais sans
+			// que la vue bouge. Un clic ailleurs, ensuite, centrera comme d'habitude.
+			const arrivedByScroll = scrolledTo.delete(view);
 			centred.set(view, block.from);
+			if (arrivedByScroll) return;
 			const selection = unreadDomSelection(view);
 			view.dispatch({
 				selection,

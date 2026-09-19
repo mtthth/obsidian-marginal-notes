@@ -1,6 +1,6 @@
 import { EditorState, RangeSet, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, gutter, GutterMarker } from "@codemirror/view";
-import { refreshMarkersEffect } from "./model";
+import { hasLabel, refreshMarkersEffect } from "./model";
 import { paragraphAt, TaggedParagraph, taggedParagraphs } from "./paragraphs";
 import { openTagMenu } from "./menu";
 import type MarginalNotesPlugin from "./main";
@@ -52,6 +52,8 @@ function buildDecorations(state: EditorState, plugin: MarginalNotesPlugin): TagD
 	const lines = new RangeSetBuilder<Decoration>();
 	const tagged = taggedParagraphs(state);
 	for (const { block, tag } of tagged) {
+		// Un paragraphe qui n'est que corné n'a pas d'étiquette à dessiner : sa corne est dans la minipage.
+		if (!hasLabel(tag)) continue;
 		const color = plugin.paletteColor(tag.color);
 		const firstNumber = block.firstLine.number;
 		const lastNumber = state.doc.lineAt(block.to).number;
