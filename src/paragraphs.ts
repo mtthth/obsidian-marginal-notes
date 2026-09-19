@@ -156,9 +156,15 @@ export function markerText(block: ParagraphBlock): string {
 	return block.firstLine.text.slice(block.markerFrom - block.firstLine.from);
 }
 
+/** Début du texte d'une ligne, après un éventuel préfixe markdown et un éventuel marqueur %%mn …%%. */
+export function lineTextStart(line: Line): number {
+	const offset = PREFIX_RE.exec(line.text)?.[0].length ?? 0;
+	return line.from + offset + (parseMarker(line.text.slice(offset))?.matchLength ?? 0);
+}
+
 /** Début du texte du bloc, après un éventuel marqueur : où viser pour ne pas dévoiler le %%mn …%%. */
 export function textStart(block: ParagraphBlock): number {
-	return block.markerFrom + (parseMarker(markerText(block))?.matchLength ?? 0);
+	return lineTextStart(block.firstLine);
 }
 
 export interface TaggedParagraph {

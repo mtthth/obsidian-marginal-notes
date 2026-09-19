@@ -5,6 +5,7 @@ import { createGutter, createTagField } from "./gutter";
 import { createMinimap } from "./minimap";
 import { flashField } from "./flash";
 import { createCenterFlash } from "./centerFlash";
+import { searchHighlighter } from "./search";
 import { paragraphAt } from "./paragraphs";
 import { openTagMenu } from "./menu";
 import { centerOnClick, jumpToTag } from "./navigation";
@@ -35,6 +36,7 @@ export default class MarginalNotesPlugin extends Plugin {
 			createMinimap(this, tagField),
 			centerOnClick(),
 			createCenterFlash(),
+			searchHighlighter,
 		]);
 		this.registerMarkdownPostProcessor(createReadingPostProcessor(this));
 		this.addSettingTab(new MarginalNotesSettingTab(this.app, this));
