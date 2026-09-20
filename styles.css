@@ -281,7 +281,7 @@
 	text-shadow: 0 0 3px var(--background-primary), 0 0 3px var(--background-primary);
 }
 
-/* Repère qui ne tient plus dans la hauteur disponible : caché, mais toujours mesurable. */
+/* Repère qui ne trouve pas de place en face de son titre : caché, mais toujours mesurable. */
 .mn-section.mn-section-overflow {
 	visibility: hidden;
 }

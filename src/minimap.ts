@@ -50,7 +50,7 @@ const SEARCH_ALPHA = 0.9;
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe. */
 const BUBBLE_TAIL_SPACE = 6;
-/** Hauteur approximative d'une bulle, pour aligner son haut sur celui d'une zone assez haute. */
+/** Hauteur approximative d'une bulle, pour borner le décalage vertical qu'on tolère avant de la pousser vers la gauche. */
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
 const MIN_FLASH_HEIGHT = 4;
@@ -98,8 +98,9 @@ interface Band {
 }
 
 interface Label {
-	/** Hauteur, dans la minipage, que la bulle doit viser. */
-	center: number;
+	/** Haut et hauteur, dans la minipage, de la zone étiquetée : la bulle vise leur milieu, ou leur haut si la zone est plus haute qu'elle. */
+	top: number;
+	zoneHeight: number;
 	text: string;
 	color: string | undefined;
 	/** Position où placer le curseur quand on clique sur la bulle : début du texte du paragraphe. */
@@ -120,6 +121,11 @@ function contrastingTextColor(color: string): string {
 	if (!rgb) return "#000000";
 	const brightness = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
 	return brightness > 0.55 ? "#000000" : "#ffffff";
+}
+
+/** Rang d'un repère de section : quand la place manque, un chapitre ou un trait l'emporte sur une partie. */
+function sectionRank(section: SectionBoundary): number {
+	return section.level === 3 ? 0 : 1;
 }
 
 /**
@@ -388,10 +394,9 @@ class MinimapView {
 			if (zone?.tag.corner && zone.block.from === item.from) corners.push(top);
 
 			if (zone?.tag.text && zone.block.from === item.from) {
-				// Bulle centrée sur une zone fine, alignée sur le haut d'une zone plus haute qu'elle.
-				const zoneHeight = this.model.bottom(zone.block.to) * scale - top;
 				labels.push({
-					center: top + Math.min(zoneHeight, BUBBLE_HEIGHT_ESTIMATE) / 2,
+					top,
+					zoneHeight: this.model.bottom(zone.block.to) * scale - top,
 					text: zone.tag.text,
 					color,
 					pos: zone.block.markerFrom + zone.matchLength,
@@ -563,11 +568,12 @@ class MinimapView {
 			}
 		});
 
-		const sizes = labels.map((label, i) => ({
-			center: label.center,
-			width: this.bubbleEls[i].offsetWidth,
-			height: this.bubbleEls[i].offsetHeight,
-		}));
+		// Bulle centrée sur une zone fine, alignée sur le haut d'une zone plus haute qu'elle : d'après la
+		// hauteur mesurée de la bulle, qui dépend de la police du thème et de la présence d'une bordure.
+		const sizes = labels.map((label, i) => {
+			const { offsetWidth: width, offsetHeight: height } = this.bubbleEls[i];
+			return { center: label.top + Math.min(label.zoneHeight, height) / 2, width, height };
+		});
 		const placements = placeBubbles(sizes, {
 			maxHeight,
 			// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
@@ -639,8 +645,9 @@ class MinimapView {
 
 	/**
 	 * Place les repères de sections en colonne contre le bord gauche de la minipage, chacun centré sur
-	 * sa frontière. Comme les bulles, ils ne sont visibles qu'au survol mais toujours mis en page pour
-	 * pouvoir être mesurés. Renvoie la largeur de la colonne, dont les bulles doivent s'écarter.
+	 * sa frontière, ou masqué s'il ne peut l'être. Comme les bulles, ils ne sont visibles qu'au survol
+	 * mais toujours mis en page pour pouvoir être mesurés. Renvoie la largeur de la colonne, dont les
+	 * bulles doivent s'écarter.
 	 */
 	private renderSections(maxHeight: number): number {
 		const sections = this.syncSections();
@@ -649,22 +656,37 @@ class MinimapView {
 		// mesurable.
 		const sizes = this.sectionEls.map((el) => ({ width: el.offsetWidth, height: el.offsetHeight }));
 
-		// À l'échelle de la minipage, deux titres voisins tombent à quelques pixels l'un de l'autre :
-		// le second est alors repoussé sous le premier.
-		let width = 0;
-		let bottom = 0;
+		// À l'échelle de la minipage, des titres voisins tombent à quelques pixels l'un de l'autre : chacun
+		// est repoussé sous le précédent, mais d'une demi-hauteur au plus, faute de quoi il ne serait plus
+		// en face de son titre, et l'écart s'accumulerait de proche en proche. Un repère qui ne trouve pas
+		// de place ainsi prend celle du précédent s'il est de rang supérieur ; sinon il est masqué.
+		const placed: { i: number; top: number }[] = [];
 		sections.forEach((section, i) => {
-			const el = this.sectionEls[i];
-			const size = sizes[i];
+			const { height } = sizes[i];
 			const block = this.model.itemAt(section.line.from);
 			const center = block ? (block.top + block.height / 2) * this.scale : 0;
-			const top = Math.max(bottom, Math.min(maxHeight - size.height, Math.max(0, center - size.height / 2)));
-			const fits = top + size.height <= maxHeight;
-			el.toggleClass("mn-section-overflow", !fits);
-			if (!fits) return;
+			const ideal = Math.min(maxHeight - height, Math.max(0, center - height / 2));
+			for (;;) {
+				const last = placed[placed.length - 1];
+				const top = last ? Math.max(ideal, last.top + sizes[last.i].height + SECTION_GAP) : ideal;
+				if (top - ideal <= height / 2 && top + height <= maxHeight) {
+					placed.push({ i, top });
+					return;
+				}
+				if (!last || sectionRank(section) <= sectionRank(sections[last.i])) return;
+				placed.pop();
+			}
+		});
+
+		const tops = new Map(placed.map(({ i, top }) => [i, top]));
+		let width = 0;
+		sections.forEach((_, i) => {
+			const el = this.sectionEls[i];
+			const top = tops.get(i);
+			el.toggleClass("mn-section-overflow", top === undefined);
+			if (top === undefined) return;
 			el.style.top = `${top}px`;
-			bottom = top + size.height + SECTION_GAP;
-			width = Math.max(width, size.width);
+			width = Math.max(width, sizes[i].width);
 		});
 		return width ? width + SECTION_BUBBLE_GAP : 0;
 	}
