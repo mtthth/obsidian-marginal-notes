@@ -8,6 +8,7 @@ import {
 	frontmatterLastLine,
 	paragraphAt,
 	textStart,
+	textWithoutMarker,
 	type ParagraphBlock,
 	type SectionBoundary,
 } from "./paragraphs";
@@ -50,6 +51,13 @@ const FRONTMATTER_ALPHA = 0.25;
  */
 const HOVER_ALPHA_BOOST = 0.45;
 const HOVER_COLOR_MIX = 0.35;
+/**
+ * Aperçu du texte du paragraphe survolé : un cadre sur le tiers gauche de l'éditeur, à cette distance de
+ * ses bords, et pas plus étroit que ce minimum. Seul le début du texte y est mis : le reste ne se verrait pas.
+ */
+const PREVIEW_INSET = 12;
+const PREVIEW_MIN_WIDTH = 220;
+const PREVIEW_MAX_CHARS = 3000;
 /** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
 const SEARCH_ALPHA = 0.9;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
@@ -185,6 +193,9 @@ class MinimapView {
 	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
 	private sectionLayer: HTMLElement;
 	private sectionEls: HTMLElement[] = [];
+	/** Cadre de l'aperçu du paragraphe survolé, et son texte, coupé par des points de suspension. */
+	private preview: HTMLElement;
+	private previewText: HTMLElement;
 	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
 	private sectionDoc: Text | null = null;
 	private sections: SectionBoundary[] = [];
@@ -218,6 +229,10 @@ class MinimapView {
 		this.bubbleLayer = this.dom.createDiv({ cls: "mn-minimap-bubbles" });
 		this.sectionLayer = this.dom.createDiv({ cls: "mn-minimap-sections" });
 		view.dom.appendChild(this.dom);
+		// À côté de la minipage et non dedans : il ne doit pas compter comme survolé, ni la recouvrir.
+		this.preview = view.dom.createDiv({ cls: "mn-preview" });
+		this.previewText = this.preview.createDiv({ cls: "mn-preview-text" });
+		this.preview.hide();
 
 		this.dom.addEventListener("pointerdown", this.onPointerDown);
 		this.dom.addEventListener("pointermove", this.onPointerMove);
@@ -255,6 +270,7 @@ class MinimapView {
 		this.search.destroy();
 		this.reserveSpace(false);
 		this.dom.remove();
+		this.preview.remove();
 	}
 
 	/** Réserve la largeur de la minipage à droite de la zone de défilement, pour ne pas recouvrir le texte. */
@@ -274,6 +290,8 @@ class MinimapView {
 
 	private hide() {
 		this.scale = 0;
+		this.hover = null;
+		this.preview.hide();
 		this.reserveSpace(false);
 		this.dom.hide();
 	}
@@ -869,10 +887,35 @@ class MinimapView {
 		this.paint();
 	}
 
-	/** Éclaire les bulles et repères de sections du paragraphe survolé. */
+	/** Éclaire les bulles et repères de sections du paragraphe survolé, et en montre le texte. */
 	private applyHover() {
 		for (const el of this.bubbleEls) el.toggleClass("mn-lit", this.inHover(Number(el.dataset.pos)));
 		for (const el of this.sectionEls) el.toggleClass("mn-lit", this.inHover(Number(el.dataset.anchor)));
+		this.updatePreview();
+	}
+
+	/**
+	 * Cadre sur le tiers gauche de l'éditeur, aussi haut que l'éditeur le permet, avec le début du texte
+	 * du paragraphe survolé. Le texte se coupe à la dernière ligne entière qui tient, points de suspension
+	 * compris : le nombre de lignes se déduit de la hauteur du cadre, que seul le navigateur connaît.
+	 */
+	private updatePreview() {
+		const { view, preview, previewText, hover } = this;
+		if (!hover) return preview.hide();
+		const text = textWithoutMarker(view.state.doc, hover.from, Math.min(hover.to, hover.from + PREVIEW_MAX_CHARS));
+		if (previewText.textContent !== text) previewText.textContent = text;
+
+		const maxHeight = Math.max(0, view.dom.clientHeight - 2 * PREVIEW_INSET);
+		preview.style.left = `${PREVIEW_INSET}px`;
+		preview.style.top = `${PREVIEW_INSET}px`;
+		preview.style.width = `${Math.max(PREVIEW_MIN_WIDTH, Math.round(view.dom.clientWidth / 3)) - PREVIEW_INSET}px`;
+		preview.show();
+		// Une ligne d'abord, pour mesurer ce que le cadre ajoute au texte (marges et bordure).
+		previewText.style.setProperty("-webkit-line-clamp", "1");
+		const chrome = preview.offsetHeight - previewText.offsetHeight;
+		const lineHeight = parseFloat(getComputedStyle(previewText).lineHeight) || view.defaultLineHeight;
+		const lines = Math.max(1, Math.floor((maxHeight - chrome) / lineHeight));
+		previewText.style.setProperty("-webkit-line-clamp", String(lines));
 	}
 
 	// La minipage est hors de la zone de défilement de l'éditeur : la molette n'y agit pas d'elle-même.

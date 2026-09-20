@@ -305,6 +305,34 @@
 	visibility: hidden;
 }
 
+/* Aperçu du texte du paragraphe que la minipage survole : un cadre sur le tiers gauche de l'éditeur, dont
+   minimap.ts pose la place et la largeur. Sous la minipage (z-index 5), pour que ses bulles, quand l'une
+   d'elles est décalée loin vers la gauche, restent lisibles par-dessus. Le nombre de lignes du texte,
+   qu'il coupe par des points de suspension, est aussi posé par minimap.ts. */
+.mn-preview {
+	position: absolute;
+	z-index: 4;
+	box-sizing: border-box;
+	padding: 14px 16px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m, 8px);
+	background-color: var(--background-primary);
+	box-shadow: var(--shadow-l, var(--shadow-s));
+	color: var(--text-normal);
+	pointer-events: none;
+}
+
+.mn-preview-text {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	font-family: var(--font-text, inherit);
+	font-size: var(--font-text-size, 16px);
+	line-height: 1.5;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
 .mn-menu-swatch {
 	display: inline-block;
 	width: 10px;

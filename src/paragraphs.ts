@@ -162,6 +162,13 @@ export function lineTextStart(line: Line): number {
 	return line.from + offset + (parseMarker(line.text.slice(offset))?.matchLength ?? 0);
 }
 
+/** Le texte de `[from, to]`, sans le marqueur %%mn …%% que porte sa première ligne : ce n'est pas du texte. */
+export function textWithoutMarker(doc: Text, from: number, to: number): string {
+	const first = doc.lineAt(from);
+	const markerFrom = first.from + (PREFIX_RE.exec(first.text)?.[0].length ?? 0);
+	return doc.sliceString(from, markerFrom) + doc.sliceString(lineTextStart(first), to);
+}
+
 /** Début du texte du bloc, après un éventuel marqueur : où viser pour ne pas dévoiler le %%mn …%%. */
 export function textStart(block: ParagraphBlock): number {
 	return lineTextStart(block.firstLine);
