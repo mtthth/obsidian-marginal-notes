@@ -14,7 +14,7 @@ import {
 } from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
-import { placeBubbles, placeColumn } from "./bubbleLayout";
+import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
 import { SearchWatcher } from "./search";
 import { toggleCorner } from "./tagEdit";
@@ -635,7 +635,7 @@ class MinimapView {
 	 * Bulles des étiquettes, à gauche de la minipage (au-delà des repères de sections, larges de
 	 * `sectionWidth`) et par-dessus le texte. Masquées en CSS tant que la minipage n'est pas survolée,
 	 * mais toujours mises en page pour pouvoir être mesurées. Selon `bubbleView`, chacune en face de son
-	 * paragraphe (vue 1) ou toutes en colonne (vue 2).
+	 * paragraphe (vue 1) ou toutes en colonne (vue 2), en deux colonnes entrelacées s'il le faut.
 	 */
 	private renderBubbles() {
 		if (!this.bubbleInput) return;
@@ -678,21 +678,24 @@ class MinimapView {
 			return { center: label.top + Math.min(label.zoneHeight, height) / 2, width, height };
 		});
 		const column = this.bubbleView === 2;
+		// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
+		const maxSpread = Math.max(
+			0,
+			this.dom.getBoundingClientRect().left -
+				this.view.contentDOM.getBoundingClientRect().left -
+				sectionWidth -
+				BUBBLE_TAIL_SPACE
+		);
 		const placements = column
-			? placeColumn(sizes, { maxHeight, gap: BUBBLE_GAP })
-			: placeBubbles(sizes, {
+			? placeColumns(sizes, {
 					maxHeight,
-					// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
-					maxSpread: Math.max(
-						0,
-						this.dom.getBoundingClientRect().left -
-							this.view.contentDOM.getBoundingClientRect().left -
-							sectionWidth -
-							BUBBLE_TAIL_SPACE
-					),
+					maxSpread,
 					gap: BUBBLE_GAP,
-					maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75,
-			  });
+					// Du bord d'une bulle contre la minipage au bord du texte dessiné.
+					reach: BUBBLE_TAIL_SPACE + sectionWidth + PADDING_X,
+					clearance: TAIL_BASE / 2,
+			  })
+			: placeBubbles(sizes, { maxHeight, maxSpread, gap: BUBBLE_GAP, maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75 });
 
 		placements.forEach((placement, i) => {
 			const el = this.bubbleEls[i];
