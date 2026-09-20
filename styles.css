@@ -143,6 +143,7 @@
 	position: absolute;
 	top: 0;
 	right: calc(100% + var(--mn-section-width, 0px));
+	isolation: isolate;
 	visibility: hidden;
 	opacity: 0;
 	transition: opacity 120ms ease 200ms, visibility 0s linear 320ms;
@@ -185,14 +186,31 @@
 	border: 1px solid var(--background-modifier-border);
 }
 
-.mn-bubble.mn-has-tail::after {
-	content: "";
+/* Pointe de la bulle vers la bande de son paragraphe : un biseau dont minimap.ts pose la forme, en dessous
+   de la bulle (z-index négatif dans la couche des bulles, qui forme son propre contexte d'empilement),
+   qui en cache le pied. Les repères de sections, plus bas dans le DOM, passent par-dessus. */
+.mn-bubble-tail {
 	position: absolute;
-	right: -5px;
-	top: calc(var(--mn-tail-y, 50%) - 5px);
-	border-top: 5px solid transparent;
-	border-bottom: 5px solid transparent;
-	border-left: 6px solid var(--mn-bubble-fill);
+	z-index: -1;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.mn-bubble:not(.mn-has-tail) .mn-bubble-tail {
+	display: none;
+}
+
+.mn-bubble-tail polygon {
+	fill: var(--mn-bubble-fill);
+}
+
+/* Une bulle sans couleur est presque aussi pâle que le fond : sa pointe, elle, se lit. */
+.mn-bubble.mn-colorless .mn-bubble-tail polygon {
+	fill: var(--text-faint);
+}
+
+.mn-bubble.mn-colorless.mn-lit .mn-bubble-tail polygon {
+	fill: var(--text-muted);
 }
 
 /* Bulle du paragraphe que le pointeur survole dans la minipage, dessiné plus soutenu lui aussi : sa

@@ -62,8 +62,18 @@ const PREVIEW_MAX_CHARS = 3000;
 const SEARCH_ALPHA = 0.9;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
-/** Place laissée à droite des bulles pour leur pointe. */
-const BUBBLE_TAIL_SPACE = 6;
+/** Place laissée à droite des bulles pour leur pointe, en plus de la colonne des repères de sections. */
+const BUBBLE_TAIL_SPACE = 10;
+/**
+ * Pointe d'une bulle : un biseau de cette hauteur contre la bulle, effilé jusqu'à cette hauteur contre la
+ * bande du paragraphe ; sa naissance est cachée de tant de pixels sous la bulle ; il n'y en a pas si la
+ * bulle est plus oblique que ce décalage vertical.
+ */
+const TAIL_BASE = 12;
+const TAIL_TIP = 2;
+const TAIL_JOIN = 10;
+const TAIL_MAX_SLANT = 30;
+const SVG_NS = "http://www.w3.org/2000/svg";
 /** Hauteur approximative d'une bulle, pour borner le décalage vertical qu'on tolère avant de la pousser vers la gauche. */
 const BUBBLE_HEIGHT_ESTIMATE = 18;
 /** Hauteur minimale du flash dans la minipage : un paragraphe court y fait à peine un pixel. */
@@ -447,11 +457,14 @@ class MinimapView {
 
 			if (zone?.tag.corner && zone.block.from === item.from) corners.push(top);
 
-			if (zone?.tag.text && zone.block.from === item.from) {
+			// Sans texte à elle, une étiquette de couleur porte le libellé de cette couleur dans la palette ;
+			// une clé qui n'y est plus (donc sans couleur), ou un libellé vide, ne donne pas de bulle.
+			const text = zone?.tag.text ?? (color ? this.plugin.paletteLabel(zone?.tag.color) : undefined);
+			if (zone && text && zone.block.from === item.from) {
 				labels.push({
 					top,
 					zoneHeight: this.model.bottom(zone.block.to) * scale - top,
-					text: zone.tag.text,
+					text,
 					color,
 					pos: zone.block.markerFrom + zone.matchLength,
 				});
@@ -617,6 +630,11 @@ class MinimapView {
 		while (this.bubbleEls.length < labels.length) {
 			const el = this.bubbleLayer.createDiv({ cls: "mn-bubble" });
 			el.createSpan({ cls: "mn-bubble-text" });
+			// Sous la bulle (voir styles.css), pour qu'elle en cache le pied : la pointe lui est ainsi raccordée.
+			const tail = document.createElementNS(SVG_NS, "svg");
+			tail.classList.add("mn-bubble-tail");
+			tail.appendChild(document.createElementNS(SVG_NS, "polygon"));
+			el.appendChild(tail);
 			this.bubbleEls.push(el);
 		}
 		while (this.bubbleEls.length > labels.length) this.bubbleEls.pop()?.remove();
@@ -669,10 +687,45 @@ class MinimapView {
 			el.style.top = `${placement.top}px`;
 			el.style.right = `${placement.offset + BUBBLE_TAIL_SPACE}px`;
 			// La pointe vers la zone n'a de sens que pour une bulle collée à la minipage.
-			el.toggleClass("mn-has-tail", placement.offset === 0);
-			const tailY = Math.min(sizes[i].height - 6, Math.max(6, sizes[i].center - placement.top));
-			el.style.setProperty("--mn-tail-y", `${tailY}px`);
+			this.shapeTail(el, sizes[i].width, sizes[i].height, sizes[i].center - placement.top, placement.offset === 0, sectionWidth);
 		});
+	}
+
+	/**
+	 * Pointe d'une bulle vers la bande de son paragraphe, dont elle traverse les repères de sections : un
+	 * biseau qui s'effile de la hauteur `TAIL_BASE`, contre la bulle, à celle de `TAIL_TIP`, sur le bord
+	 * du texte dans la minipage. Il prend naissance sous la bulle, qui en cache le pied. Son bout vise
+	 * `targetY` (le milieu de la zone étiquetée, en coordonnées de la bulle) ; son pied reste dans la
+	 * hauteur de la bulle, d'où l'obliquité d'une bulle décalée. Trop oblique, ou pour une bulle décalée
+	 * vers la gauche que rien ne relie plus en ligne droite à sa bande, il n'y en a pas.
+	 */
+	private shapeTail(el: HTMLElement, width: number, height: number, targetY: number, attached: boolean, sectionWidth: number) {
+		const baseY = Math.min(height - TAIL_BASE / 2, Math.max(TAIL_BASE / 2, targetY));
+		const tailed = attached && Math.abs(targetY - baseY) <= TAIL_MAX_SLANT;
+		el.toggleClass("mn-has-tail", tailed);
+		if (!tailed) return;
+		const join = Math.min(TAIL_JOIN, width / 2);
+		const length = join + BUBBLE_TAIL_SPACE + sectionWidth + PADDING_X;
+		// Repères relatifs au pied du biseau, dans la bulle : x depuis `width - join`, y depuis `top`.
+		const top = Math.min(baseY - TAIL_BASE / 2, targetY - TAIL_TIP / 2);
+		const bottom = Math.max(baseY + TAIL_BASE / 2, targetY + TAIL_TIP / 2);
+		const svg = el.lastElementChild as SVGElement;
+		// Les positions se prennent depuis le bord intérieur de la bordure de la bulle.
+		svg.style.left = `${width - join - el.clientLeft}px`;
+		svg.style.top = `${top - el.clientTop}px`;
+		svg.setAttribute("width", String(length));
+		svg.setAttribute("height", String(bottom - top));
+		(svg.firstElementChild as SVGElement).setAttribute(
+			"points",
+			[
+				[0, baseY - TAIL_BASE / 2 - top],
+				[0, baseY + TAIL_BASE / 2 - top],
+				[length, targetY + TAIL_TIP / 2 - top],
+				[length, targetY - TAIL_TIP / 2 - top],
+			]
+				.map((point) => point.join(","))
+				.join(" ")
+		);
 	}
 
 	/**

@@ -146,6 +146,11 @@ export default class MarginalNotesPlugin extends Plugin {
 		return key ? this.settings.palette.find((p) => p.key === key)?.color : undefined;
 	}
 
+	/** Libellé, dans la palette, d'une clé de couleur : ce que dit la couleur d'un paragraphe sans texte à lui. Absent s'il est vide. */
+	paletteLabel(key: string | undefined): string | undefined {
+		return (key && this.settings.palette.find((p) => p.key === key)?.label.trim()) || undefined;
+	}
+
 	/** Opacité (en %) du fond des paragraphes étiquetés, déduite de la transparence réglée. */
 	backgroundAlpha(): number {
 		return 100 - this.settings.backgroundTransparency;

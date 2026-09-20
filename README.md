@@ -19,7 +19,7 @@ Une vue d'ensemble de la note, à droite de l'éditeur, qui la représente « d�
 
 - **Clic** : centre le paragraphe visé, pose le curseur dedans et le fait clignoter. **Glisser** : fait défiler la note. **Molette** : avance ou recule d'un paragraphe par cran.
 - Un cadre indique la portion de la note visible dans l'éditeur.
-- Les paragraphes étiquetés y apparaissent dans leur couleur. Au survol, leurs **bulles** affichent le texte de l'étiquette, et les **repères de sections** numérotent les titres de niveau 2 et 3 (1, 1.1…) ; un trait de séparation y est marqué d'une étoile. Cliquer sur une bulle ou un repère y mène.
+- Les paragraphes étiquetés y apparaissent dans leur couleur. Au survol, leurs **bulles** affichent le texte de l'étiquette (à défaut, le libellé de sa couleur dans la palette) et une pointe les relie à leur paragraphe, et les **repères de sections** numérotent les titres de niveau 2 et 3 (1, 1.1…) ; un trait de séparation y est marqué d'une étoile. Cliquer sur une bulle ou un repère y mène.
 - **Survol d'un paragraphe** : il se dessine plus soutenu, comme sa bulle ou son repère de section, et un **aperçu de son texte** s'affiche sur le tiers gauche de l'éditeur, coupé par des points de suspension s'il est trop long.
 - **Recherche** : quand un mot est tapé dans la barre de recherche d'Obsidian (Ctrl+F), chaque occurrence est encadrée dans le texte et les blocs concernés sont mis en valeur dans la minipage.
 - **Clic droit dans la minipage** : corne ou décorne le paragraphe visé, sans s'y rendre.
