@@ -157,12 +157,14 @@
 
 .mn-bubble {
 	--mn-bubble-bg: var(--background-secondary);
+	/* Ce que la bulle et sa pointe montrent : sa couleur, tirée vers celle du texte quand elle est éclairée. */
+	--mn-bubble-fill: var(--mn-bubble-bg);
 	position: absolute;
 	box-sizing: border-box;
 	max-width: 220px;
 	padding: 2px 8px;
 	border-radius: 9px;
-	background-color: var(--mn-bubble-bg);
+	background-color: var(--mn-bubble-fill);
 	box-shadow: var(--shadow-s);
 	font-size: var(--font-ui-smaller);
 	line-height: 1.4;
@@ -190,7 +192,17 @@
 	top: calc(var(--mn-tail-y, 50%) - 5px);
 	border-top: 5px solid transparent;
 	border-bottom: 5px solid transparent;
-	border-left: 6px solid var(--mn-bubble-bg);
+	border-left: 6px solid var(--mn-bubble-fill);
+}
+
+/* Bulle du paragraphe que le pointeur survole dans la minipage, dessiné plus soutenu lui aussi : sa
+   couleur se rapproche de celle du texte, plus foncée en thème clair. */
+.mn-bubble.mn-lit {
+	--mn-bubble-fill: color-mix(in srgb, var(--mn-bubble-bg) 70%, var(--text-normal));
+}
+
+.mn-bubble.mn-colorless.mn-lit {
+	border-color: var(--text-muted);
 }
 
 /* Repères des frontières de sections, en colonne contre le bord gauche de la minipage, entre elle et
@@ -232,8 +244,15 @@
 	pointer-events: auto;
 }
 
-.mn-section:hover {
+.mn-section:hover,
+.mn-section.mn-lit {
 	color: var(--text-normal);
+}
+
+/* Repère du titre que le pointeur survole dans la minipage : plus soutenu, comme sa bande. */
+.mn-section.mn-lit {
+	border-color: var(--text-muted);
+	background-color: color-mix(in srgb, var(--background-secondary) 70%, var(--text-normal));
 }
 
 /* Le numéro dans un rond : un cercle pour « 2 », étiré en ovale pour « 2.1 ». */

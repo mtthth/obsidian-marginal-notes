@@ -41,14 +41,24 @@ export class StackModel<T extends ModelItem> {
 		return found;
 	}
 
+	/** Indice du bloc qui contient `pos`, ou, dans une ligne vide, de celui qui précède ; 0 avant tout texte. */
+	indexAt(pos: number): number {
+		return Math.max(0, this.lastAtOrBefore(pos, (item) => item.from));
+	}
+
+	/** Indice du bloc qui occupe la hauteur `y`, du premier ou du dernier au-delà des bords. */
+	indexAtY(y: number): number {
+		return Math.max(0, this.lastAtOrBefore(y, (item) => item.top));
+	}
+
 	/** Le bloc qui contient `pos`, ou, dans une ligne vide, celui qui précède ; le premier avant tout texte. */
 	itemAt(pos: number): T | undefined {
-		return this.items[Math.max(0, this.lastAtOrBefore(pos, (item) => item.from))];
+		return this.items[this.indexAt(pos)];
 	}
 
 	/** Le bloc qui occupe la hauteur `y`, le premier ou le dernier au-delà des bords. */
 	itemAtY(y: number): T | undefined {
-		return this.items[Math.max(0, this.lastAtOrBefore(y, (item) => item.top))];
+		return this.items[this.indexAtY(y)];
 	}
 
 	/** Hauteur de `pos`, proportionnelle à sa place dans le texte de son bloc. */

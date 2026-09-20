@@ -44,6 +44,12 @@ const RUN_END_FILL_MAX = 0.85;
 /** Opacité des lignes de texte ordinaires, et de celles du frontmatter YAML, dessinées plus claires. */
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
+/**
+ * Paragraphe survolé, dessiné plus soutenu : ses lignes ordinaires gagnent en opacité, et une bande
+ * de couleur, déjà opaque, se rapproche de la couleur du texte (plus foncée en thème clair).
+ */
+const HOVER_ALPHA_BOOST = 0.45;
+const HOVER_COLOR_MIX = 0.35;
 /** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
 const SEARCH_ALPHA = 0.9;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
@@ -86,6 +92,8 @@ interface Block extends ModelItem {
 
 /** Bloc de texte à dessiner, en coordonnées de la minipage. */
 interface Band {
+	/** Position du texte où le bloc commence : de quoi savoir s'il fait partie du paragraphe survolé. */
+	from: number;
 	top: number;
 	height: number;
 	rows: number;
@@ -107,20 +115,31 @@ interface Label {
 	pos: number;
 }
 
-/** Noir ou blanc, selon ce qui se lit le mieux sur `color` ("#rrggbb", "#rgb" ou "rgb(…)"). */
-function contrastingTextColor(color: string): string {
-	let rgb: number[] | null = null;
+/** Composantes rouge, vert et bleu de `color` ("#rrggbb", "#rgb" ou "rgb(…)"), ou null si elle ne se lit pas. */
+function parseRgb(color: string): number[] | null {
 	const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
 	if (hex) {
 		const digits = hex[1].length === 3 ? hex[1].replace(/./g, "$&$&") : hex[1];
-		rgb = [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16));
-	} else {
-		const channels = color.match(/[\d.]+/g);
-		if (channels && channels.length >= 3) rgb = channels.slice(0, 3).map(Number);
+		return [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16));
 	}
+	const channels = color.match(/[\d.]+/g);
+	return channels && channels.length >= 3 ? channels.slice(0, 3).map(Number) : null;
+}
+
+/** Noir ou blanc, selon ce qui se lit le mieux sur `color` ("#rrggbb", "#rgb" ou "rgb(…)"). */
+function contrastingTextColor(color: string): string {
+	const rgb = parseRgb(color);
 	if (!rgb) return "#000000";
 	const brightness = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
 	return brightness > 0.55 ? "#000000" : "#ffffff";
+}
+
+/** `color` tirée d'une part `share` vers `target` (mêmes notations) ; inchangée si l'une des deux ne se lit pas. */
+function mixColors(color: string, target: string, share: number): string {
+	const from = parseRgb(color);
+	const to = parseRgb(target);
+	if (!from || !to) return color;
+	return `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * share)).join(", ")})`;
 }
 
 /** Rang d'un repère de section : quand la place manque, un chapitre ou un trait l'emporte sur une partie. */
@@ -156,6 +175,11 @@ class MinimapView {
 	/** Les blocs de la note et leurs hauteurs, refaits à chaque dessin. */
 	private model = new StackModel<Block>([]);
 	private contentHeight = 0;
+	/** Bandes et pages cornées de la dernière mise en page : de quoi repeindre le canevas sans la refaire. */
+	private bands: Band[] = [];
+	private corners: number[] = [];
+	/** Texte du paragraphe que la minipage dessine sous le pointeur, ou d'une bulle ou d'un repère qu'il survole. */
+	private hover: { from: number; to: number } | null = null;
 	private bubbleLayer: HTMLElement;
 	private bubbleEls: HTMLElement[] = [];
 	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
@@ -201,7 +225,7 @@ class MinimapView {
 		this.dom.addEventListener("pointercancel", this.onPointerUp);
 		this.dom.addEventListener("contextmenu", this.onContextMenu);
 		this.dom.addEventListener("wheel", this.onWheel, { passive: false });
-		this.dom.addEventListener("pointerleave", this.resetStepping);
+		this.dom.addEventListener("pointerleave", this.onPointerLeave);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
 		this.search = new SearchWatcher(view, () => this.schedule());
 		this.schedule();
@@ -218,6 +242,7 @@ class MinimapView {
 				this.resetStepping();
 				// Les positions retenues ne désignent plus le même texte.
 				this.flashed = null;
+				this.hover = null;
 			}
 			this.schedule();
 		}
@@ -288,15 +313,25 @@ class MinimapView {
 		this.dom.style.setProperty("--mn-section-width", `${sectionWidth}px`);
 		this.renderBubbles(labels, available, sectionWidth);
 
-		const ctx = this.canvas.getContext("2d");
-		if (!ctx) return;
-		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-		const textColor = getComputedStyle(view.contentDOM).color;
-		this.paintMatches(ctx);
-		this.paintBands(ctx, bands, textColor, ratio);
-		this.paintCorners(ctx, corners);
+		this.bands = bands;
+		this.corners = corners;
+		this.paint();
+		this.applyHover();
 		this.updateViewport();
 		this.placeFlash();
+	}
+
+	/** Peint le canevas d'après la dernière mise en page : de quoi changer le paragraphe survolé sans la refaire. */
+	private paint() {
+		const ctx = this.canvas.getContext("2d");
+		if (!ctx) return;
+		const ratio = window.devicePixelRatio || 1;
+		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+		ctx.clearRect(0, 0, WIDTH, this.contentHeight);
+		const textColor = getComputedStyle(this.view.contentDOM).color;
+		this.paintMatches(ctx);
+		this.paintBands(ctx, this.bands, textColor, ratio);
+		this.paintCorners(ctx, this.corners);
 	}
 
 	/** Réglage « Paragraphes » (sans ligne vide, chaque paragraphe se reconnaît à sa forme) plutôt que « Bloc plein ». */
@@ -381,6 +416,7 @@ class MinimapView {
 			const color = this.plugin.paletteColor(zone?.tag.color);
 			const top = item.top * scale;
 			bands.push({
+				from: item.from,
 				top,
 				height: item.height * scale,
 				rows: item.rows,
@@ -411,6 +447,26 @@ class MinimapView {
 		else this.paintBlocks(ctx, bands, textColor);
 	}
 
+	/** Vrai si le texte à `pos` fait partie du paragraphe survolé. */
+	private inHover(pos: number): boolean {
+		return this.hover !== null && pos >= this.hover.from && pos <= this.hover.to;
+	}
+
+	/** Couleur et opacité de la bande ; plus soutenues si elle fait partie du paragraphe survolé. */
+	private setBandStyle(ctx: CanvasRenderingContext2D, band: Band, textColor: string) {
+		if (!this.inHover(band.from)) {
+			ctx.fillStyle = band.color ?? textColor;
+			ctx.globalAlpha = band.alpha;
+		} else if (band.color) {
+			// Déjà opaque : seule sa couleur peut changer.
+			ctx.fillStyle = mixColors(band.color, textColor, HOVER_COLOR_MIX);
+			ctx.globalAlpha = 1;
+		} else {
+			ctx.fillStyle = textColor;
+			ctx.globalAlpha = Math.min(1, band.alpha + HOVER_ALPHA_BOOST);
+		}
+	}
+
 	/** Un aplat, avec une hauteur plancher pour qu'un court paragraphe étiqueté reste visible même dans une longue note. */
 	private fillFlat(ctx: CanvasRenderingContext2D, band: Band) {
 		const minHeight = band.color ? MIN_ROW_HEIGHT : 1;
@@ -421,8 +477,7 @@ class MinimapView {
 	private paintBlocks(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string) {
 		const barWidth = WIDTH - 2 * PADDING_X;
 		for (const band of bands) {
-			ctx.fillStyle = band.color ?? textColor;
-			ctx.globalAlpha = band.alpha;
+			this.setBandStyle(ctx, band, textColor);
 			const rowHeight = band.height / band.rows;
 			if (rowHeight < MIN_ROW_HEIGHT) {
 				this.fillFlat(ctx, band);
@@ -454,8 +509,7 @@ class MinimapView {
 			if (bottom > top && right > left) ctx.fillRect(PADDING_X + left, top, right - left, bottom - top);
 		};
 		for (const band of bands) {
-			ctx.fillStyle = band.color ?? textColor;
-			ctx.globalAlpha = band.alpha;
+			this.setBandStyle(ctx, band, textColor);
 			const rowHeight = band.height / band.rows;
 			const indent = indented && band.startsRun ? INDENT_X : 0;
 			const lastRight = barWidth * band.lastRowFill;
@@ -638,6 +692,8 @@ class MinimapView {
 			title.textContent = section.title;
 			el.title = section.title;
 			el.dataset.pos = String(section.pos);
+			// Un trait de séparation mène, au clic, à ce qui le suit, mais se tient en face de lui-même.
+			el.dataset.anchor = String(section.line.from);
 			el.toggleClass("mn-section-rule", section.level === 0);
 		});
 		return this.sections;
@@ -738,6 +794,8 @@ class MinimapView {
 
 		this.dom.setPointerCapture(event.pointerId);
 		this.dragging = true;
+		// Pendant le glissement le texte défile sous le pointeur : ce qu'il survolait n'a plus de sens.
+		this.setHover(null);
 		this.jumpTo(event.clientY, true);
 	};
 
@@ -761,11 +819,61 @@ class MinimapView {
 
 	private onPointerMove = (event: PointerEvent) => {
 		if (this.dragging) this.jumpTo(event.clientY, false);
+		else this.updateHover(event);
 	};
 
-	private onPointerUp = () => {
+	private onPointerUp = (event: PointerEvent) => {
 		this.dragging = false;
+		if (event.type === "pointerup") this.updateHover(event);
 	};
+
+	private onPointerLeave = () => {
+		this.resetStepping();
+		this.setHover(null);
+	};
+
+	/**
+	 * Retient le paragraphe que le pointeur survole : celui que la minipage dessine sous lui, ou celui
+	 * que désigne la bulle ou le repère de section qu'il survole, où que celui-ci ait été décalé.
+	 * Jamais au doigt, qui ne survole rien.
+	 */
+	private updateHover(event: PointerEvent) {
+		if (event.pointerType === "touch" || !this.scale) return;
+		const marker =
+			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
+		const index = marker
+			? this.model.indexAt(Number(marker.dataset.anchor ?? marker.dataset.pos))
+			: this.model.indexAtY(this.modelYAt(event.clientY));
+		this.setHover(this.runAt(index));
+	}
+
+	/**
+	 * Le paragraphe dessiné au bloc d'indice `index` : la suite de lignes non vides qui l'entoure, ou
+	 * null pour une ligne vide (style « Bloc plein »).
+	 */
+	private runAt(index: number): { from: number; to: number } | null {
+		const { items } = this.model;
+		if (!items[index] || items[index].blank) return null;
+		let first = index;
+		while (first > 0 && !items[first].startsRun) first--;
+		let last = index;
+		while (last < items.length - 1 && !items[last].endsRun) last++;
+		return { from: items[first].from, to: items[last].to };
+	}
+
+	/** Change le paragraphe survolé : repeint la minipage, et éclaire sa bulle ou son repère de section. */
+	private setHover(range: { from: number; to: number } | null) {
+		if (range?.from === this.hover?.from && range?.to === this.hover?.to) return;
+		this.hover = range;
+		this.applyHover();
+		this.paint();
+	}
+
+	/** Éclaire les bulles et repères de sections du paragraphe survolé. */
+	private applyHover() {
+		for (const el of this.bubbleEls) el.toggleClass("mn-lit", this.inHover(Number(el.dataset.pos)));
+		for (const el of this.sectionEls) el.toggleClass("mn-lit", this.inHover(Number(el.dataset.anchor)));
+	}
 
 	// La minipage est hors de la zone de défilement de l'éditeur : la molette n'y agit pas d'elle-même.
 	// On la relaie en pas de lecture : un cran amène le paragraphe suivant au centre et le fait
