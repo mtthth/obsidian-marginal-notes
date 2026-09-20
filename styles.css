@@ -188,7 +188,9 @@
 
 /* Pointe de la bulle vers la bande de son paragraphe : un biseau dont minimap.ts pose la forme, en dessous
    de la bulle (z-index négatif dans la couche des bulles, qui forme son propre contexte d'empilement),
-   qui en cache le pied. Les repères de sections, plus bas dans le DOM, passent par-dessus. */
+   qui en cache le pied. Il passe ainsi sous toutes les autres bulles, celle d'une bulle décalée vers la
+   gauche traversant celles qui la séparent de la minipage. Les repères de sections, plus bas dans le
+   DOM, passent par-dessus. */
 .mn-bubble-tail {
 	position: absolute;
 	z-index: -1;

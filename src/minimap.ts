@@ -686,26 +686,26 @@ class MinimapView {
 			}
 			el.style.top = `${placement.top}px`;
 			el.style.right = `${placement.offset + BUBBLE_TAIL_SPACE}px`;
-			// La pointe vers la zone n'a de sens que pour une bulle collée à la minipage.
-			this.shapeTail(el, sizes[i].width, sizes[i].height, sizes[i].center - placement.top, placement.offset === 0, sectionWidth);
+			this.shapeTail(el, sizes[i].width, sizes[i].height, sizes[i].center - placement.top, placement.offset, sectionWidth);
 		});
 	}
 
 	/**
-	 * Pointe d'une bulle vers la bande de son paragraphe, dont elle traverse les repères de sections : un
+	 * Pointe d'une bulle vers la bande de son paragraphe, dont elle traverse les repères de sections et,
+	 * pour une bulle décalée vers la gauche de `offset`, les bulles qui la séparent de la minipage : un
 	 * biseau qui s'effile de la hauteur `TAIL_BASE`, contre la bulle, à celle de `TAIL_TIP`, sur le bord
-	 * du texte dans la minipage. Il prend naissance sous la bulle, qui en cache le pied. Son bout vise
-	 * `targetY` (le milieu de la zone étiquetée, en coordonnées de la bulle) ; son pied reste dans la
-	 * hauteur de la bulle, d'où l'obliquité d'une bulle décalée. Trop oblique, ou pour une bulle décalée
-	 * vers la gauche que rien ne relie plus en ligne droite à sa bande, il n'y en a pas.
+	 * du texte dans la minipage. Il prend naissance sous la bulle, qui en cache le pied, et passe sous
+	 * les autres (voir styles.css). Son bout vise `targetY` (le milieu de la zone étiquetée, en
+	 * coordonnées de la bulle) ; son pied reste dans la hauteur de la bulle, d'où l'obliquité d'une bulle
+	 * poussée vers le bas. Trop oblique, il n'y en a pas.
 	 */
-	private shapeTail(el: HTMLElement, width: number, height: number, targetY: number, attached: boolean, sectionWidth: number) {
+	private shapeTail(el: HTMLElement, width: number, height: number, targetY: number, offset: number, sectionWidth: number) {
 		const baseY = Math.min(height - TAIL_BASE / 2, Math.max(TAIL_BASE / 2, targetY));
-		const tailed = attached && Math.abs(targetY - baseY) <= TAIL_MAX_SLANT;
+		const tailed = Math.abs(targetY - baseY) <= TAIL_MAX_SLANT;
 		el.toggleClass("mn-has-tail", tailed);
 		if (!tailed) return;
 		const join = Math.min(TAIL_JOIN, width / 2);
-		const length = join + BUBBLE_TAIL_SPACE + sectionWidth + PADDING_X;
+		const length = join + offset + BUBBLE_TAIL_SPACE + sectionWidth + PADDING_X;
 		// Repères relatifs au pied du biseau, dans la bulle : x depuis `width - join`, y depuis `top`.
 		const top = Math.min(baseY - TAIL_BASE / 2, targetY - TAIL_TIP / 2);
 		const bottom = Math.max(baseY + TAIL_BASE / 2, targetY + TAIL_TIP / 2);
