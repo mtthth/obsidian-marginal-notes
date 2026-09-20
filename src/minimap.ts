@@ -14,7 +14,7 @@ import {
 } from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
-import { placeBubbles } from "./bubbleLayout";
+import { placeBubbles, placeColumn } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
 import { SearchWatcher } from "./search";
 import { toggleCorner } from "./tagEdit";
@@ -200,6 +200,13 @@ class MinimapView {
 	private hover: { from: number; to: number } | null = null;
 	private bubbleLayer: HTMLElement;
 	private bubbleEls: HTMLElement[] = [];
+	/**
+	 * Vue des bulles : 1, chacune en face de son paragraphe ; 2, toutes sur une même verticale, à
+	 * intervalles réguliers, tant que la touche Ctrl est enfoncée pendant le survol.
+	 */
+	private bubbleView: 1 | 2 = 1;
+	/** Ce que renderBubbles a reçu au dernier dessin : de quoi changer de vue sans refaire la mise en page. */
+	private bubbleInput: { labels: Label[]; maxHeight: number; sectionWidth: number } | null = null;
 	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
 	private sectionLayer: HTMLElement;
 	private sectionEls: HTMLElement[] = [];
@@ -250,6 +257,7 @@ class MinimapView {
 		this.dom.addEventListener("pointercancel", this.onPointerUp);
 		this.dom.addEventListener("contextmenu", this.onContextMenu);
 		this.dom.addEventListener("wheel", this.onWheel, { passive: false });
+		this.dom.addEventListener("pointerenter", this.onPointerEnter);
 		this.dom.addEventListener("pointerleave", this.onPointerLeave);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
 		this.search = new SearchWatcher(view, () => this.schedule());
@@ -277,6 +285,7 @@ class MinimapView {
 		cancelAnimationFrame(this.frame);
 		window.clearTimeout(this.flashTimer);
 		this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+		this.stopWatchingCtrl();
 		this.search.destroy();
 		this.reserveSpace(false);
 		this.dom.remove();
@@ -339,7 +348,8 @@ class MinimapView {
 		// Les repères de sections d'abord : leur largeur mesurée dit de combien les bulles s'écartent.
 		const sectionWidth = this.renderSections(available);
 		this.dom.style.setProperty("--mn-section-width", `${sectionWidth}px`);
-		this.renderBubbles(labels, available, sectionWidth);
+		this.bubbleInput = { labels, maxHeight: available, sectionWidth };
+		this.renderBubbles();
 
 		this.bands = bands;
 		this.corners = corners;
@@ -624,9 +634,12 @@ class MinimapView {
 	/**
 	 * Bulles des étiquettes, à gauche de la minipage (au-delà des repères de sections, larges de
 	 * `sectionWidth`) et par-dessus le texte. Masquées en CSS tant que la minipage n'est pas survolée,
-	 * mais toujours mises en page pour pouvoir être mesurées.
+	 * mais toujours mises en page pour pouvoir être mesurées. Selon `bubbleView`, chacune en face de son
+	 * paragraphe (vue 1) ou toutes en colonne (vue 2).
 	 */
-	private renderBubbles(labels: Label[], maxHeight: number, sectionWidth: number) {
+	private renderBubbles() {
+		if (!this.bubbleInput) return;
+		const { labels, maxHeight, sectionWidth } = this.bubbleInput;
 		while (this.bubbleEls.length < labels.length) {
 			const el = this.bubbleLayer.createDiv({ cls: "mn-bubble" });
 			el.createSpan({ cls: "mn-bubble-text" });
@@ -664,19 +677,22 @@ class MinimapView {
 			const { offsetWidth: width, offsetHeight: height } = this.bubbleEls[i];
 			return { center: label.top + Math.min(label.zoneHeight, height) / 2, width, height };
 		});
-		const placements = placeBubbles(sizes, {
-			maxHeight,
-			// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
-			maxSpread: Math.max(
-				0,
-				this.dom.getBoundingClientRect().left -
-					this.view.contentDOM.getBoundingClientRect().left -
-					sectionWidth -
-					BUBBLE_TAIL_SPACE
-			),
-			gap: BUBBLE_GAP,
-			maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75,
-		});
+		const column = this.bubbleView === 2;
+		const placements = column
+			? placeColumn(sizes, { maxHeight, gap: BUBBLE_GAP })
+			: placeBubbles(sizes, {
+					maxHeight,
+					// Jusqu'au bord gauche de la colonne de texte, pas au-delà dans la marge.
+					maxSpread: Math.max(
+						0,
+						this.dom.getBoundingClientRect().left -
+							this.view.contentDOM.getBoundingClientRect().left -
+							sectionWidth -
+							BUBBLE_TAIL_SPACE
+					),
+					gap: BUBBLE_GAP,
+					maxNudge: BUBBLE_HEIGHT_ESTIMATE * 0.75,
+			  });
 
 		placements.forEach((placement, i) => {
 			const el = this.bubbleEls[i];
@@ -686,7 +702,7 @@ class MinimapView {
 			}
 			el.style.top = `${placement.top}px`;
 			el.style.right = `${placement.offset + BUBBLE_TAIL_SPACE}px`;
-			this.shapeTail(el, sizes[i].width, sizes[i].height, sizes[i].center - placement.top, placement.offset, sectionWidth);
+			this.shapeTail(el, sizes[i].width, sizes[i].height, sizes[i].center - placement.top, placement.offset, sectionWidth, column);
 		});
 	}
 
@@ -697,11 +713,20 @@ class MinimapView {
 	 * du texte dans la minipage. Il prend naissance sous la bulle, qui en cache le pied, et passe sous
 	 * les autres (voir styles.css). Son bout vise `targetY` (le milieu de la zone étiquetée, en
 	 * coordonnées de la bulle) ; son pied reste dans la hauteur de la bulle, d'où l'obliquité d'une bulle
-	 * poussée vers le bas. Trop oblique, il n'y en a pas.
+	 * poussée vers le bas. Trop oblique, il n'y en a pas. En colonne (vue 2), le pied part du milieu de la
+	 * bulle et la pointe est inclinée autant qu'il le faut : c'est ce qui la relie à son paragraphe.
 	 */
-	private shapeTail(el: HTMLElement, width: number, height: number, targetY: number, offset: number, sectionWidth: number) {
-		const baseY = Math.min(height - TAIL_BASE / 2, Math.max(TAIL_BASE / 2, targetY));
-		const tailed = Math.abs(targetY - baseY) <= TAIL_MAX_SLANT;
+	private shapeTail(
+		el: HTMLElement,
+		width: number,
+		height: number,
+		targetY: number,
+		offset: number,
+		sectionWidth: number,
+		column: boolean
+	) {
+		const baseY = column ? height / 2 : Math.min(height - TAIL_BASE / 2, Math.max(TAIL_BASE / 2, targetY));
+		const tailed = column || Math.abs(targetY - baseY) <= TAIL_MAX_SLANT;
 		el.toggleClass("mn-has-tail", tailed);
 		if (!tailed) return;
 		const join = Math.min(TAIL_JOIN, width / 2);
@@ -889,8 +914,16 @@ class MinimapView {
 	};
 
 	private onPointerMove = (event: PointerEvent) => {
+		// Le pointeur qui bouge dit aussi où en est Ctrl, si sa touche a été relâchée hors de la fenêtre.
+		this.setBubbleView(event.ctrlKey ? 2 : 1);
 		if (this.dragging) this.jumpTo(event.clientY, false);
 		else this.updateHover(event);
+	};
+
+	private onPointerEnter = (event: PointerEvent) => {
+		if (event.pointerType === "touch") return;
+		this.watchCtrl();
+		this.setBubbleView(event.ctrlKey ? 2 : 1);
 	};
 
 	private onPointerUp = (event: PointerEvent) => {
@@ -901,7 +934,34 @@ class MinimapView {
 	private onPointerLeave = () => {
 		this.resetStepping();
 		this.setHover(null);
+		this.stopWatchingCtrl();
+		this.setBubbleView(1);
 	};
+
+	/**
+	 * Tant que le pointeur est sur la minipage, la touche Ctrl, enfoncée ou relâchée sans que le pointeur
+	 * bouge, change la vue des bulles : le clavier n'atteint pas la minipage, seulement la page.
+	 */
+	private watchCtrl() {
+		const doc = this.dom.ownerDocument;
+		doc.addEventListener("keydown", this.onKey);
+		doc.addEventListener("keyup", this.onKey);
+	}
+
+	private stopWatchingCtrl() {
+		const doc = this.dom.ownerDocument;
+		doc.removeEventListener("keydown", this.onKey);
+		doc.removeEventListener("keyup", this.onKey);
+	}
+
+	private onKey = (event: KeyboardEvent) => this.setBubbleView(event.ctrlKey ? 2 : 1);
+
+	/** Change la vue des bulles et les remet en page : les mesures de la dernière mise en page suffisent. */
+	private setBubbleView(view: 1 | 2) {
+		if (view === this.bubbleView) return;
+		this.bubbleView = view;
+		if (this.scale) this.renderBubbles();
+	}
 
 	/**
 	 * Retient le paragraphe que le pointeur survole : celui que la minipage dessine sous lui, ou celui
