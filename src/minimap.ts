@@ -915,7 +915,7 @@ class MinimapView {
 
 	private onPointerMove = (event: PointerEvent) => {
 		// Le pointeur qui bouge dit aussi où en est Ctrl, si sa touche a été relâchée hors de la fenêtre.
-		this.setBubbleView(event.ctrlKey ? 2 : 1);
+		if (event.pointerType !== "touch") this.setBubbleView(event.ctrlKey ? 2 : 1);
 		if (this.dragging) this.jumpTo(event.clientY, false);
 		else this.updateHover(event);
 	};
