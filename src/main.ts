@@ -12,6 +12,7 @@ import { centerOnClick, jumpToTag } from "./navigation";
 import { createReadingPostProcessor } from "./reading";
 import { parseMarker, refreshMarkersEffect } from "./model";
 import { toggleCorner } from "./tagEdit";
+import { readProblemZones } from "./problemZones";
 
 // Obsidian n'expose pas officiellement la vue CodeMirror 6 sous-jacente sur Editor, mais
 // `editor.cm` est l'accès de fait stable utilisé par l'écosystème des plugins pour l'obtenir.
@@ -132,12 +133,18 @@ export default class MarginalNotesPlugin extends Plugin {
 		openTagMenu(this, cmView, block, fakeEvent);
 	}
 
-	refreshAllEditors() {
+	/** Fait redessiner la gouttière et la minipage de chaque note ouverte, sans toucher au mode lecture. */
+	refreshEditorViews() {
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			const view = leaf.view as MarkdownView;
-			const cmView = getCmView(view.editor);
+			const cmView = getCmView((leaf.view as MarkdownView).editor);
 			cmView?.dispatch({ effects: refreshMarkersEffect.of() });
-			view.previewMode?.rerender(true);
+		}
+	}
+
+	refreshAllEditors() {
+		this.refreshEditorViews();
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			(leaf.view as MarkdownView).previewMode?.rerender(true);
 		}
 	}
 
@@ -159,6 +166,11 @@ export default class MarginalNotesPlugin extends Plugin {
 	async loadSettings() {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+		// Une liste de zones que le fichier de données n'a pas, ou qu'on y a abîmée, repart de la liste par défaut ;
+		// dans tous les cas une copie : celle de DEFAULT_SETTINGS ne doit pas bouger quand on règle les zones.
+		this.settings.problemZones = readProblemZones(data?.problemZones);
+		const maxLength = Number(this.settings.problemMaxLength);
+		this.settings.problemMaxLength = Number.isFinite(maxLength) && maxLength >= 0 ? Math.floor(maxLength) : DEFAULT_SETTINGS.problemMaxLength;
 	}
 
 	async saveSettings() {

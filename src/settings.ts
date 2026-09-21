@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import { DEFAULT_PALETTE, PaletteColor } from "./model";
+import { defaultProblemZones, ProblemZone } from "./problemZones";
 import type MarginalNotesPlugin from "./main";
 
 /**
@@ -20,6 +21,13 @@ export interface MarginalNotesSettings {
 	minimapIndent: boolean;
 	/** Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. */
 	centerOnClick: boolean;
+	/** Les balisages qui signalent un endroit à reprendre, et la couleur dont la minipage les dessine. */
+	problemZones: ProblemZone[];
+	/**
+	 * Longueur (en caractères, balisage compris) au-delà de laquelle une zone n'a que son repère dans la
+	 * marge de la minipage, sans remplir sa ligne : un long texte annoté la remplirait toute. 0 : jamais.
+	 */
+	problemMaxLength: number;
 }
 
 export const DEFAULT_SETTINGS: MarginalNotesSettings = {
@@ -30,6 +38,8 @@ export const DEFAULT_SETTINGS: MarginalNotesSettings = {
 	minimapStyle: "paragraphs",
 	minimapIndent: true,
 	centerOnClick: true,
+	problemZones: defaultProblemZones(),
+	problemMaxLength: 100,
 };
 
 export class MarginalNotesSettingTab extends PluginSettingTab {
@@ -173,5 +183,99 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 				})
 			);
 		indentSetting.settingEl.toggle(this.plugin.settings.minimapStyle === "paragraphs");
+
+		this.displayProblemZones(containerEl);
+	}
+
+	/** La liste des zones à problème : balisage d'ouverture et de fermeture, et couleur de chacune. */
+	private displayProblemZones(containerEl: HTMLElement) {
+		const { settings } = this.plugin;
+		new Setting(containerEl).setName("Zones à problème").setHeading();
+		containerEl.createEl("p", {
+			text: "Le texte compris entre une ouverture et une fermeture, sur une seule ligne, se repère dans la minipage : un trait de la couleur de la zone là où il se trouve dans sa ligne, et un repère dans la marge gauche. Sans fermeture, c'est l'ouverture qui ferme. Le frontmatter, les blocs de code, de maths et de commentaires sont ignorés.",
+			cls: "setting-item-description",
+		});
+
+		settings.problemZones.forEach((zone, index) => {
+			new Setting(containerEl)
+				.setName(`Zone ${index + 1}`)
+				.addText((text) => {
+					text.inputEl.size = 6;
+					text
+						.setPlaceholder("Ouverture")
+						.setValue(zone.open)
+						.onChange(async (value) => {
+							zone.open = value;
+							await this.plugin.saveSettings();
+							this.plugin.refreshEditorViews();
+						});
+				})
+				.addText((text) => {
+					text.inputEl.size = 6;
+					text
+						.setPlaceholder("Fermeture")
+						.setValue(zone.close)
+						.onChange(async (value) => {
+							zone.close = value;
+							await this.plugin.saveSettings();
+							this.plugin.refreshEditorViews();
+						});
+				})
+				.addColorPicker((picker) =>
+					picker.setValue(zone.color).onChange(async (value) => {
+						zone.color = value;
+						await this.plugin.saveSettings();
+						this.plugin.refreshEditorViews();
+					})
+				)
+				.addExtraButton((btn) =>
+					btn
+						.setIcon("trash-2")
+						.setTooltip("Supprimer")
+						.onClick(async () => {
+							settings.problemZones.splice(index, 1);
+							await this.plugin.saveSettings();
+							this.plugin.refreshEditorViews();
+							this.display();
+						})
+				);
+		});
+
+		new Setting(containerEl)
+			.addButton((btn) =>
+				btn
+					.setButtonText("Ajouter une zone")
+					.setCta()
+					.onClick(async () => {
+						settings.problemZones.push({ open: "", close: "", color: "#e600ac" });
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			)
+			.addButton((btn) =>
+				btn.setButtonText("Rétablir la liste par défaut").onClick(async () => {
+					settings.problemZones = defaultProblemZones();
+					await this.plugin.saveSettings();
+					this.plugin.refreshEditorViews();
+					this.display();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Longueur maximale du trait")
+			.setDesc("Au-delà de ce nombre de caractères (balisage compris), une zone n'a que son repère dans la marge de la minipage, sans remplir sa ligne. 0 : toujours remplir.")
+			.addText((text) => {
+				text.inputEl.size = 6;
+				text.inputEl.type = "number";
+				text.inputEl.min = "0";
+				text.setValue(String(settings.problemMaxLength)).onChange(async (value) => {
+					const length = Number.parseInt(value, 10);
+					// Un champ vide ou illisible, le temps de la frappe, ne change rien.
+					if (!Number.isFinite(length) || length < 0) return;
+					settings.problemMaxLength = length;
+					await this.plugin.saveSettings();
+					this.plugin.refreshEditorViews();
+				});
+			});
 	}
 }

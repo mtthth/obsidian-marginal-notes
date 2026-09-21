@@ -16,7 +16,7 @@ import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
-import { problemSpans, type ProblemSpan } from "./problemZones";
+import { problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
 import { SearchWatcher } from "./search";
 import { toggleCorner } from "./tagEdit";
 import type { TagDecorations } from "./gutter";
@@ -90,17 +90,15 @@ const CORNER_SIZE = Platform.isMobile ? 4 : 8;
 /** Couleur de repli par défaut, si le thème ne définit pas --mn-corner-color (voir styles.css). */
 const CORNER_COLOR = "#ff2d2d";
 /**
- * Zones à reprendre (==surligné==, `code`, ~~barré~~, {{à faire}}) : un trait sur la ligne où elles se
- * trouvent, large d'au moins PROBLEM_MIN_WIDTH ; et, dans la marge gauche, un repère qu'aucune couleur de
- * bande ne recouvre. Le repère, et le trait quand le texte est trop comprimé pour que ses lignes se
- * distinguent, ne font pas moins de PROBLEM_MIN_HEIGHT : une zone se voit même dans une note si longue
- * que sa ligne n'y fait plus un pixel.
+ * Zones à problème (réglées dans les options : par défaut ==surligné==, `code`, ~~barré~~, {{à faire}}) :
+ * un trait sur la ligne où elles se trouvent, large d'au moins PROBLEM_MIN_WIDTH ; et, dans la marge
+ * gauche, un repère qu'aucune couleur de bande ne recouvre. Le repère, et le trait quand le texte est trop
+ * comprimé pour que ses lignes se distinguent, ne font pas moins de PROBLEM_MIN_HEIGHT : une zone se voit
+ * même dans une note si longue que sa ligne n'y fait plus un pixel.
  */
 const PROBLEM_MIN_HEIGHT = 2;
 const PROBLEM_MIN_WIDTH = 3;
 const PROBLEM_TICK_X = 1;
-/** Couleur de repli par défaut, si le thème ne définit pas --mn-problem-color (voir styles.css). */
-const PROBLEM_COLOR = "#e600ac";
 
 /**
  * Un bloc de la note, tel que la minipage le pose : une ligne du texte (ou, si du texte y est replié,
@@ -140,11 +138,14 @@ interface Band {
 	problems: ProblemMark[];
 }
 
-/** Une zone à reprendre sur une rangée d'un bloc : de `start` à `end`, parts de la largeur d'une rangée. */
+/** Une zone à problème sur une rangée d'un bloc : de `start` à `end`, parts de la largeur d'une rangée. */
 interface ProblemMark {
 	row: number;
 	start: number;
 	end: number;
+	color: string;
+	/** Zone trop longue pour remplir sa ligne (voir `problemMaxLength`) : elle n'a que son repère dans la marge. */
+	long: boolean;
 }
 
 interface Label {
@@ -242,6 +243,7 @@ class MinimapView {
 	private sections: SectionBoundary[] = [];
 	/** Zones à reprendre de la note, et le texte d'où elles ont été relevées. */
 	private problemDoc: Text | null = null;
+	private problemKey = "";
 	private problems: ProblemSpan[] = [];
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
@@ -480,6 +482,7 @@ class MinimapView {
 		/** Hauteurs, dans la minipage, des coins repliés à dessiner. */
 		const corners: number[] = [];
 		const problems = this.syncProblems();
+		const { problemZones, problemMaxLength } = this.plugin.settings;
 		const perRow = this.charsPerRow;
 		let t = 0;
 		let p = 0;
@@ -489,7 +492,11 @@ class MinimapView {
 			while (t < tagged.length && tagged[t].block.to < item.from) t++;
 			while (p < problems.length && problems[p].from < item.from) p++;
 			const marks: ProblemMark[] = [];
-			for (; p < problems.length && problems[p].from <= item.to; p++) this.markProblem(marks, problems[p], item, perRow);
+			for (; p < problems.length && problems[p].from <= item.to; p++) {
+				const span = problems[p];
+				const color = problemZones[span.zone]?.color;
+				if (color) this.markProblem(marks, span, item, perRow, color, problemMaxLength > 0 && span.to - span.from > problemMaxLength);
+			}
 			const zone = t < tagged.length && tagged[t].block.from <= item.from ? tagged[t] : undefined;
 			const color = this.plugin.paletteColor(zone?.tag.color);
 			const top = item.top * scale;
@@ -524,12 +531,15 @@ class MinimapView {
 		return { bands, labels, corners };
 	}
 
-	/** Les zones à reprendre de la note, relevées seulement quand son texte a changé. */
+	/** Les zones à problème de la note, relevées seulement quand son texte ou la liste des balisages a changé. */
 	private syncProblems(): ProblemSpan[] {
 		const { doc } = this.view.state;
-		if (this.problemDoc !== doc) {
+		const { problemZones } = this.plugin.settings;
+		const key = problemZonesKey(problemZones);
+		if (this.problemDoc !== doc || this.problemKey !== key) {
 			this.problemDoc = doc;
-			this.problems = problemSpans(doc);
+			this.problemKey = key;
+			this.problems = problemSpans(doc, problemZones);
 		}
 		return this.problems;
 	}
@@ -540,7 +550,7 @@ class MinimapView {
 	 * retour à la ligne entre les mots). Une zone qui déborde du bloc, dans du texte qui y est replié,
 	 * est ramenée au bout de sa première ligne : la seule que le modèle dessine.
 	 */
-	private markProblem(marks: ProblemMark[], span: ProblemSpan, item: Block, perRow: number) {
+	private markProblem(marks: ProblemMark[], span: ProblemSpan, item: Block, perRow: number, color: string, long: boolean) {
 		const start = Math.min(item.length, span.from - item.from);
 		const end = Math.min(item.length, Math.max(start, span.to - item.from));
 		const last = item.rows - 1;
@@ -549,6 +559,8 @@ class MinimapView {
 				row,
 				start: Math.max(0, start - row * perRow) / perRow,
 				end: Math.min(perRow, Math.max(0, end - row * perRow)) / perRow,
+				color,
+				long,
 			});
 		}
 	}
@@ -654,21 +666,19 @@ class MinimapView {
 	}
 
 	/**
-	 * Zones à reprendre (voir problemZones.ts), par-dessus les lignes : un trait de la couleur des zones
-	 * là où elles se trouvent dans leur ligne, de la hauteur de la barre qu'il recouvre pour que la forme
-	 * du paragraphe reste lisible ; et, dans la marge gauche, un repère qui se lit quelle que soit la
-	 * couleur de la bande et qui, d'une rangée à l'autre, forme un trait continu sur toute la hauteur de la
-	 * zone. Aucun des deux ne descend sous une taille minimale : une zone reste visible dans une note si
-	 * longue que sa ligne n'y fait plus un pixel.
+	 * Zones à problème (voir problemZones.ts), par-dessus les lignes, chacune dans sa couleur : un trait là
+	 * où elles se trouvent dans leur ligne, de la hauteur de la barre qu'il recouvre pour que la forme du
+	 * paragraphe reste lisible, sauf pour une zone trop longue, qui l'aurait remplie ; et, dans la marge
+	 * gauche, un repère qui se lit quelle que soit la couleur de la bande et qui, d'une rangée à l'autre,
+	 * forme un trait continu sur toute la hauteur de la zone. Aucun des deux ne descend sous une taille
+	 * minimale : une zone reste visible dans une note si longue que sa ligne n'y fait plus un pixel.
 	 */
 	private paintProblems(ctx: CanvasRenderingContext2D, bands: Band[], ratio: number) {
 		if (!bands.some((band) => band.problems.length > 0)) return;
-		const color = getComputedStyle(this.dom).getPropertyValue("--mn-problem-color").trim() || PROBLEM_COLOR;
 		const barWidth = WIDTH - 2 * PADDING_X;
 		const indented = this.byParagraph && this.plugin.settings.minimapIndent;
 		const pixel = 1 / ratio;
 		const snap = (y: number) => Math.round(y * ratio) / ratio;
-		ctx.fillStyle = color;
 		// paintBands laisse l'opacité de sa dernière bande : un repère, lui, est toujours opaque.
 		ctx.globalAlpha = 1;
 		for (const band of bands) {
@@ -676,11 +686,13 @@ class MinimapView {
 			// Comme paintParagraphs et paintBlocks : des barres espacées si les rangées sont assez hautes, sinon un aplat.
 			const spaced = rowHeight >= MIN_ROW_HEIGHT;
 			for (const mark of band.problems) {
+				ctx.fillStyle = mark.color;
 				const rowTop = band.top + mark.row * rowHeight;
 				const rowBottom = rowTop + rowHeight;
 				const gutterTop = snap(rowTop);
 				const gutterBottom = Math.max(snap(rowBottom), gutterTop + PROBLEM_MIN_HEIGHT);
 				ctx.fillRect(PROBLEM_TICK_X, gutterTop, PADDING_X - 2 * PROBLEM_TICK_X, gutterBottom - gutterTop);
+				if (mark.long) continue;
 
 				const margin = spaced ? rowHeight * 0.2 : 0;
 				const top = snap(rowTop + margin);
