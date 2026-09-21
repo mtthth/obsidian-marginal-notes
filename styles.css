@@ -342,6 +342,14 @@
 	pointer-events: none;
 }
 
+.mn-preview-line {
+	margin-bottom: 6px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller, 12px);
+	font-variant-numeric: tabular-nums;
+	line-height: 1.2;
+}
+
 .mn-preview-text {
 	display: -webkit-box;
 	-webkit-box-orient: vertical;

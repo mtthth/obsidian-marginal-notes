@@ -235,8 +235,9 @@ class MinimapView {
 	/** Repères des frontières de sections, en colonne contre le bord gauche de la minipage. */
 	private sectionLayer: HTMLElement;
 	private sectionEls: HTMLElement[] = [];
-	/** Cadre de l'aperçu du paragraphe survolé, et son texte, coupé par des points de suspension. */
+	/** Cadre de l'aperçu du paragraphe survolé, son numéro de ligne, et son texte, coupé par des points de suspension. */
 	private preview: HTMLElement;
+	private previewLine: HTMLElement;
 	private previewText: HTMLElement;
 	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
 	private sectionDoc: Text | null = null;
@@ -277,6 +278,7 @@ class MinimapView {
 		view.dom.appendChild(this.dom);
 		// À côté de la minipage et non dedans : il ne doit pas compter comme survolé, ni la recouvrir.
 		this.preview = view.dom.createDiv({ cls: "mn-preview" });
+		this.previewLine = this.preview.createDiv({ cls: "mn-preview-line" });
 		this.previewText = this.preview.createDiv({ cls: "mn-preview-text" });
 		this.preview.hide();
 
@@ -1135,13 +1137,16 @@ class MinimapView {
 	}
 
 	/**
-	 * Cadre sur le tiers gauche de l'éditeur, aussi haut que l'éditeur le permet, avec le début du texte
-	 * du paragraphe survolé. Le texte se coupe à la dernière ligne entière qui tient, points de suspension
-	 * compris : le nombre de lignes se déduit de la hauteur du cadre, que seul le navigateur connaît.
+	 * Cadre sur le tiers gauche de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro de la ligne
+	 * où commence le paragraphe survolé (celui de la marge de l'éditeur, pour le retrouver) puis le début de
+	 * son texte. Le texte se coupe à la dernière ligne entière qui tient, points de suspension compris : le
+	 * nombre de lignes se déduit de la hauteur du cadre, que seul le navigateur connaît.
 	 */
 	private updatePreview() {
-		const { view, preview, previewText, hover } = this;
+		const { view, preview, previewLine, previewText, hover } = this;
 		if (!hover) return preview.hide();
+		const line = `Ligne ${view.state.doc.lineAt(hover.from).number}`;
+		if (previewLine.textContent !== line) previewLine.textContent = line;
 		const text = textWithoutMarker(view.state.doc, hover.from, Math.min(hover.to, hover.from + PREVIEW_MAX_CHARS));
 		if (previewText.textContent !== text) previewText.textContent = text;
 
