@@ -37,9 +37,12 @@ export function createReadingPostProcessor(plugin: MarginalNotesPlugin) {
 		target.addClass("mn-reading-tag");
 		const color = plugin.paletteColor(hit.tag.color);
 		if (color) {
-			target.addClass("mn-has-color");
+			// La couleur sert aussi à l'ovale de la marge ; seul le fond est facultatif.
 			target.style.setProperty("--mn-color", color);
-			target.style.setProperty("--mn-bg-alpha", `${plugin.backgroundAlpha()}%`);
+			if (plugin.settings.paragraphBackground) {
+				target.addClass("mn-has-color");
+				target.style.setProperty("--mn-bg-alpha", `${plugin.backgroundAlpha()}%`);
+			}
 		}
 		if (hit.tag.text) target.setAttribute("data-mn-label", hit.tag.text);
 	};

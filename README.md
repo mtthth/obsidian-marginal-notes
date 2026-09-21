@@ -9,7 +9,7 @@ Les annotations sont enregistrées dans la note elle-même, sous la forme d'un c
 ### Étiquettes de paragraphe
 
 - **Une couleur** (cinq par défaut : *À retravailler*, *En cours*, *Validé*, *Idée à explorer*, *Recherche*) et/ou **un texte court** par paragraphe.
-- La couleur s'affiche dans la gouttière, sous la forme d'un ovale vertical de la hauteur du paragraphe, et en fond discret derrière le texte. Le texte s'affiche dans une bulle de la minipage, et en infobulle sur l'ovale.
+- La couleur s'affiche dans la gouttière, sous la forme d'un ovale vertical de la hauteur du paragraphe, et en fond discret derrière le texte (au choix). Le texte s'affiche dans une bulle de la minipage, et en infobulle sur l'ovale.
 - Le mode lecture affiche l'ovale et le fond dans la marge du bloc rendu.
 - Pour étiqueter : clic droit dans le paragraphe → **Étiqueter le paragraphe courant**, ou la commande du même nom.
 
@@ -52,7 +52,7 @@ Aucun raccourci n'est défini par défaut : à assigner dans *Réglages → Racc
 *Réglages → Marginal Notes* :
 
 - **Palette de couleurs** : libellé et couleur de chaque entrée, ajout et suppression. Renommer ou recolorer une entrée met à jour tous les paragraphes qui l'utilisent.
-- **Transparence du fond** des paragraphes étiquetés (0 % = couleur pleine, 100 % = aucun fond).
+- **Colorer le fond des paragraphes** étiquetés, dans l'éditeur et en mode lecture (désactivé : la couleur ne se voit plus que dans l'ovale de la gouttière et dans la minipage), et sa **transparence** (0 % = couleur pleine, 100 % = aucun fond).
 - **Centrer le paragraphe au clic**.
 - **Afficher la minipage**, son **style** (*Bloc plein* ou *Paragraphes*) et l'**alinéa**.
 

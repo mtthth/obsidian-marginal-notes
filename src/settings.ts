@@ -10,6 +10,8 @@ export type MinimapStyle = "block" | "paragraphs";
 
 export interface MarginalNotesSettings {
 	palette: PaletteColor[];
+	/** Le fond des paragraphes étiquetés prend la couleur de leur étiquette (l'ovale de la gouttière, lui, reste). */
+	paragraphBackground: boolean;
 	/** Transparence (en %) du fond coloré des paragraphes étiquetés : 100 = pas de fond. */
 	backgroundTransparency: number;
 	showMinimap: boolean;
@@ -22,6 +24,7 @@ export interface MarginalNotesSettings {
 
 export const DEFAULT_SETTINGS: MarginalNotesSettings = {
 	palette: DEFAULT_PALETTE.map((p) => ({ ...p })),
+	paragraphBackground: true,
 	backgroundTransparency: 80,
 	showMinimap: true,
 	minimapStyle: "paragraphs",
@@ -88,7 +91,20 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 		);
 
 		new Setting(containerEl).setName("Fond des paragraphes").setHeading();
+		// La transparence n'a de sens que si le fond est coloré : son réglage se masque sinon.
+		let transparencySetting: Setting;
 		new Setting(containerEl)
+			.setName("Colorer le fond des paragraphes")
+			.setDesc("Le fond d'un paragraphe étiqueté prend la couleur de son étiquette, dans l'éditeur et en mode lecture. Désactivé, la couleur ne se voit que dans l'ovale de la gouttière et dans la minipage.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.paragraphBackground).onChange(async (value) => {
+					this.plugin.settings.paragraphBackground = value;
+					await this.plugin.saveSettings();
+					transparencySetting.settingEl.toggle(value);
+					this.plugin.refreshAllEditors();
+				})
+			);
+		transparencySetting = new Setting(containerEl)
 			.setName("Transparence du fond")
 			.setDesc("Transparence de la couleur d'étiquette appliquée au fond du paragraphe : 0 % = couleur pleine, 100 % = aucun fond.")
 			.addSlider((slider) =>
@@ -102,6 +118,7 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 						this.plugin.refreshAllEditors();
 					})
 			);
+		transparencySetting.settingEl.toggle(this.plugin.settings.paragraphBackground);
 
 		new Setting(containerEl).setName("Clic dans le texte").setHeading();
 		new Setting(containerEl)

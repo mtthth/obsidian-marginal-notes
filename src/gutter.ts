@@ -62,7 +62,7 @@ function buildDecorations(state: EditorState, plugin: MarginalNotesPlugin): TagD
 			const isFirst = n === firstNumber;
 			const isLast = n === lastNumber;
 			markers.add(line.from, line.from, new TagGutterMarker(color, tag.text, isFirst, isLast));
-			if (color) {
+			if (color && plugin.settings.paragraphBackground) {
 				const cls = ["mn-line-tagged", isFirst ? "mn-first" : "", isLast ? "mn-last" : ""].join(" ").trim();
 				const style = `--mn-color: ${color}; --mn-bg-alpha: ${plugin.backgroundAlpha()}%`;
 				lines.add(line.from, line.from, Decoration.line({ class: cls, attributes: { style } }));
