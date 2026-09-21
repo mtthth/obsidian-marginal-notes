@@ -16,6 +16,7 @@ import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred } from "./navigation";
 import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
+import { problemSpans, type ProblemSpan } from "./problemZones";
 import { SearchWatcher } from "./search";
 import { toggleCorner } from "./tagEdit";
 import type { TagDecorations } from "./gutter";
@@ -88,6 +89,18 @@ const SECTION_BUBBLE_GAP = 4;
 const CORNER_SIZE = Platform.isMobile ? 4 : 8;
 /** Couleur de repli par défaut, si le thème ne définit pas --mn-corner-color (voir styles.css). */
 const CORNER_COLOR = "#ff2d2d";
+/**
+ * Zones à reprendre (==surligné==, `code`, ~~barré~~, {{à faire}}) : un trait sur la ligne où elles se
+ * trouvent, large d'au moins PROBLEM_MIN_WIDTH ; et, dans la marge gauche, un repère qu'aucune couleur de
+ * bande ne recouvre. Le repère, et le trait quand le texte est trop comprimé pour que ses lignes se
+ * distinguent, ne font pas moins de PROBLEM_MIN_HEIGHT : une zone se voit même dans une note si longue
+ * que sa ligne n'y fait plus un pixel.
+ */
+const PROBLEM_MIN_HEIGHT = 2;
+const PROBLEM_MIN_WIDTH = 3;
+const PROBLEM_TICK_X = 1;
+/** Couleur de repli par défaut, si le thème ne définit pas --mn-problem-color (voir styles.css). */
+const PROBLEM_COLOR = "#e600ac";
 
 /**
  * Un bloc de la note, tel que la minipage le pose : une ligne du texte (ou, si du texte y est replié,
@@ -98,6 +111,8 @@ interface Block extends ModelItem {
 	blank: boolean;
 	/** Numéro de la ligne du texte où le bloc commence. */
 	line: number;
+	/** Longueur de la ligne où le bloc commence, dont on tire ses rangées. */
+	length: number;
 	/** Nombre de lignes à l'écran que le texte du bloc est estimé y occuper. */
 	rows: number;
 	/** Part de la largeur occupée par la dernière ligne à l'écran du bloc. */
@@ -121,6 +136,15 @@ interface Band {
 	startsRun: boolean;
 	color: string | undefined;
 	alpha: number;
+	/** Zones à reprendre du bloc, une par rangée qu'elles traversent. */
+	problems: ProblemMark[];
+}
+
+/** Une zone à reprendre sur une rangée d'un bloc : de `start` à `end`, parts de la largeur d'une rangée. */
+interface ProblemMark {
+	row: number;
+	start: number;
+	end: number;
 }
 
 interface Label {
@@ -216,6 +240,9 @@ class MinimapView {
 	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
 	private sectionDoc: Text | null = null;
 	private sections: SectionBoundary[] = [];
+	/** Zones à reprendre de la note, et le texte d'où elles ont été relevées. */
+	private problemDoc: Text | null = null;
+	private problems: ProblemSpan[] = [];
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
 	private flashed: { from: number; to: number } | null = null;
@@ -369,12 +396,18 @@ class MinimapView {
 		const textColor = getComputedStyle(this.view.contentDOM).color;
 		this.paintMatches(ctx);
 		this.paintBands(ctx, this.bands, textColor, ratio);
+		this.paintProblems(ctx, this.bands, ratio);
 		this.paintCorners(ctx, this.corners);
 	}
 
 	/** Réglage « Paragraphes » (sans ligne vide, chaque paragraphe se reconnaît à sa forme) plutôt que « Bloc plein ». */
 	private get byParagraph(): boolean {
 		return this.plugin.settings.minimapStyle !== "block";
+	}
+
+	/** Nombre de caractères que la colonne de texte tient sur une rangée : ce qui dit combien de rangées demande une ligne. */
+	private get charsPerRow(): number {
+		return Math.max(1, this.view.contentDOM.clientWidth / this.view.defaultCharacterWidth);
 	}
 
 	/**
@@ -388,7 +421,7 @@ class MinimapView {
 	private buildModel(lineHeight: number): StackModel<Block> {
 		const { view } = this;
 		const doc = view.state.doc;
-		const charsPerRow = Math.max(1, view.contentDOM.clientWidth / view.defaultCharacterWidth);
+		const charsPerRow = this.charsPerRow;
 		const keepBlanks = !this.byParagraph;
 		const blocks: Block[] = [];
 		let top = 0;
@@ -418,6 +451,7 @@ class MinimapView {
 				height: rows * lineHeight,
 				blank,
 				line: n,
+				length: line.length,
 				rows,
 				lastRowFill: blank ? 1 : Math.min(1, Math.max(0.15, (line.length - (rows - 1) * charsPerRow) / charsPerRow)),
 				startsRun: !blank && afterBlank,
@@ -445,11 +479,17 @@ class MinimapView {
 		const labels: Label[] = [];
 		/** Hauteurs, dans la minipage, des coins repliés à dessiner. */
 		const corners: number[] = [];
+		const problems = this.syncProblems();
+		const perRow = this.charsPerRow;
 		let t = 0;
+		let p = 0;
 
 		for (const item of this.model.items) {
 			if (item.blank) continue;
 			while (t < tagged.length && tagged[t].block.to < item.from) t++;
+			while (p < problems.length && problems[p].from < item.from) p++;
+			const marks: ProblemMark[] = [];
+			for (; p < problems.length && problems[p].from <= item.to; p++) this.markProblem(marks, problems[p], item, perRow);
 			const zone = t < tagged.length && tagged[t].block.from <= item.from ? tagged[t] : undefined;
 			const color = this.plugin.paletteColor(zone?.tag.color);
 			const top = item.top * scale;
@@ -463,6 +503,7 @@ class MinimapView {
 				startsRun: item.startsRun,
 				color,
 				alpha: color ? 1 : item.line <= frontmatterEnd ? FRONTMATTER_ALPHA : TEXT_ALPHA,
+				problems: marks,
 			});
 
 			if (zone?.tag.corner && zone.block.from === item.from) corners.push(top);
@@ -481,6 +522,35 @@ class MinimapView {
 			}
 		}
 		return { bands, labels, corners };
+	}
+
+	/** Les zones à reprendre de la note, relevées seulement quand son texte a changé. */
+	private syncProblems(): ProblemSpan[] {
+		const { doc } = this.view.state;
+		if (this.problemDoc !== doc) {
+			this.problemDoc = doc;
+			this.problems = problemSpans(doc);
+		}
+		return this.problems;
+	}
+
+	/**
+	 * Ajoute à `marks` la zone `span` du bloc `item`, à la place que le modèle donne à son texte : rangée et
+	 * part de la largeur d'après le décalage dans la ligne (comme le nombre de rangées, sans compter le
+	 * retour à la ligne entre les mots). Une zone qui déborde du bloc, dans du texte qui y est replié,
+	 * est ramenée au bout de sa première ligne : la seule que le modèle dessine.
+	 */
+	private markProblem(marks: ProblemMark[], span: ProblemSpan, item: Block, perRow: number) {
+		const start = Math.min(item.length, span.from - item.from);
+		const end = Math.min(item.length, Math.max(start, span.to - item.from));
+		const last = item.rows - 1;
+		for (let row = Math.min(last, Math.floor(start / perRow)); row <= last && row * perRow < Math.max(end, start + 1); row++) {
+			marks.push({
+				row,
+				start: Math.max(0, start - row * perRow) / perRow,
+				end: Math.min(perRow, Math.max(0, end - row * perRow)) / perRow,
+			});
+		}
 	}
 
 	private paintBands(ctx: CanvasRenderingContext2D, bands: Band[], textColor: string, ratio: number) {
@@ -580,6 +650,48 @@ class MinimapView {
 			fill(indent, barWidth, top, firstBottom);
 			fill(0, barWidth, firstBottom, lastTop);
 			fill(0, lastRight, lastTop, bottom);
+		}
+	}
+
+	/**
+	 * Zones à reprendre (voir problemZones.ts), par-dessus les lignes : un trait de la couleur des zones
+	 * là où elles se trouvent dans leur ligne, de la hauteur de la barre qu'il recouvre pour que la forme
+	 * du paragraphe reste lisible ; et, dans la marge gauche, un repère qui se lit quelle que soit la
+	 * couleur de la bande et qui, d'une rangée à l'autre, forme un trait continu sur toute la hauteur de la
+	 * zone. Aucun des deux ne descend sous une taille minimale : une zone reste visible dans une note si
+	 * longue que sa ligne n'y fait plus un pixel.
+	 */
+	private paintProblems(ctx: CanvasRenderingContext2D, bands: Band[], ratio: number) {
+		if (!bands.some((band) => band.problems.length > 0)) return;
+		const color = getComputedStyle(this.dom).getPropertyValue("--mn-problem-color").trim() || PROBLEM_COLOR;
+		const barWidth = WIDTH - 2 * PADDING_X;
+		const indented = this.byParagraph && this.plugin.settings.minimapIndent;
+		const pixel = 1 / ratio;
+		const snap = (y: number) => Math.round(y * ratio) / ratio;
+		ctx.fillStyle = color;
+		// paintBands laisse l'opacité de sa dernière bande : un repère, lui, est toujours opaque.
+		ctx.globalAlpha = 1;
+		for (const band of bands) {
+			const rowHeight = band.height / band.rows;
+			// Comme paintParagraphs et paintBlocks : des barres espacées si les rangées sont assez hautes, sinon un aplat.
+			const spaced = rowHeight >= MIN_ROW_HEIGHT;
+			for (const mark of band.problems) {
+				const rowTop = band.top + mark.row * rowHeight;
+				const rowBottom = rowTop + rowHeight;
+				const gutterTop = snap(rowTop);
+				const gutterBottom = Math.max(snap(rowBottom), gutterTop + PROBLEM_MIN_HEIGHT);
+				ctx.fillRect(PROBLEM_TICK_X, gutterTop, PADDING_X - 2 * PROBLEM_TICK_X, gutterBottom - gutterTop);
+
+				const margin = spaced ? rowHeight * 0.2 : 0;
+				const top = snap(rowTop + margin);
+				const bottom = Math.max(snap(rowBottom - margin), top + (spaced ? pixel : PROBLEM_MIN_HEIGHT));
+				// Là où la rangée est dessinée : sa première commence en retrait, sa dernière est écourtée.
+				const rowLeft = mark.row === 0 && indented && band.startsRun ? INDENT_X : 0;
+				const rowRight = mark.row === band.rows - 1 ? barWidth * band.lastRowFill : barWidth;
+				const left = Math.min(Math.max(mark.start * barWidth, rowLeft), barWidth - PROBLEM_MIN_WIDTH);
+				const right = Math.min(barWidth, Math.max(Math.min(mark.end * barWidth, rowRight), left + PROBLEM_MIN_WIDTH));
+				ctx.fillRect(PADDING_X + left, top, right - left, bottom - top);
+			}
 		}
 	}
 

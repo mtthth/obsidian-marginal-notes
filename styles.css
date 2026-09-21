@@ -110,6 +110,9 @@
 	/* Repère « page cornée », dessiné sur le canevas : un rouge plus vif et plus saturé que celui de
 	   la palette, pour se repérer d'un coup d'œil. Un extrait CSS peut le changer. */
 	--mn-corner-color: #ff2d2d;
+	/* Zones à reprendre (==surligné==, `code`, ~~barré~~, {{à faire}}) : un magenta qui n'est ni une
+	   couleur de la palette, ni le rouge des cornes, ni le gris du texte. Un extrait CSS peut le changer. */
+	--mn-problem-color: #e600ac;
 	position: absolute;
 	right: 0;
 	z-index: 5;

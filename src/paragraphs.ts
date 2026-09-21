@@ -41,7 +41,7 @@ function isPlainParagraph(text: string): boolean {
 }
 
 /** Si la ligne ouvre un bloc à ignorer, renvoie le motif de sa ligne fermante. */
-function blockCloser(text: string): RegExp | null {
+export function blockCloser(text: string): RegExp | null {
 	const fence = FENCE_RE.exec(text);
 	if (fence) return new RegExp(`^\\s*${fence[1][0]}{${fence[1].length},}\\s*$`);
 	const trimmed = text.trim();

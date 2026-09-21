@@ -23,6 +23,7 @@ Une vue d'ensemble de la note, à droite de l'éditeur, qui la représente « d�
 - **Survol d'un paragraphe** : il se dessine plus soutenu, comme sa bulle ou son repère de section, et un **aperçu de son texte** s'affiche sur le tiers gauche de l'éditeur, coupé par des points de suspension s'il est trop long.
 - **Vue 2 des bulles** : tant que **Ctrl** est enfoncé pendant le survol, les bulles se rangent toutes sur une même verticale, à intervalles réguliers, avec des pointes inclinées qui ne se croisent pas. Quand il y en a trop pour une colonne, une deuxième colonne, à gauche de la première, prend une bulle sur deux, les deux s'entrelaçant dans l'ordre du texte, sans que les pointes se croisent (les intervalles de la deuxième colonne peuvent alors être irréguliers) ; s'il y en a trop même pour deux colonnes, seules quelques-unes, réparties dans la liste, sont montrées. Relâcher Ctrl ramène la **vue 1**, chaque bulle en face de son paragraphe.
 - **Recherche** : quand un mot est tapé dans la barre de recherche d'Obsidian (Ctrl+F), chaque occurrence est encadrée dans le texte et les blocs concernés sont mis en valeur dans la minipage.
+- **Zones à reprendre** : le texte balisé en `==surligné==`, `` `code` ``, `~~barré~~` ou `{{à faire}}` (sur une seule ligne, hors frontmatter et blocs de code) apparaît en magenta, à sa place dans sa ligne, et dans la marge gauche de la minipage, où un repère continu couvre toute la hauteur de la zone, quelle que soit la couleur du paragraphe. La couleur se change par `--mn-problem-color` dans un extrait CSS.
 - **Clic droit dans la minipage** : corne ou décorne le paragraphe visé, sans s'y rendre.
 - Sur mobile, la minipage est deux fois plus étroite et sert seulement à naviguer.
 
@@ -115,6 +116,7 @@ Le code est dans `src/` :
 | `gutter.ts` | Ovales de la gouttière et fond des paragraphes étiquetés |
 | `reading.ts` | Affichage des étiquettes en mode lecture |
 | `minimap.ts`, `minimapModel.ts`, `bubbleLayout.ts` | Minipage, son modèle de hauteurs et le placement de ses bulles |
+| `problemZones.ts` | Repérage des zones à reprendre (`==…==`, `` `…` ``, `~~…~~`, `{{…}}`) |
 | `menu.ts`, `tagEdit.ts`, `textInputModal.ts` | Menu d'étiquetage et édition du marqueur |
 | `navigation.ts`, `flash.ts`, `centerFlash.ts` | Centrage au clic, saut d'étiquette en étiquette, clignotement |
 | `search.ts` | Occurrences de la recherche Ctrl+F |
