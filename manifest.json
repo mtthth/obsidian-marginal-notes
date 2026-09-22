@@ -4,7 +4,7 @@
 	"version": "0.1.19",
 	"minAppVersion": "1.4.0",
 	"description": "Étiquettes de couleur et de texte court dans la marge de l'éditeur, attachées à chaque paragraphe, pour annoter vos travaux d'écriture.",
-	"author": "Matthieu Thomas",
+	"author": "Matthieu Thomas (cidrolin)",
 	"authorUrl": "",
 	"isDesktopOnly": false
 }

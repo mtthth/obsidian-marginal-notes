@@ -8,7 +8,9 @@
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
 	},
 	"keywords": [],
-	"author": "Matthieu Thomas",
+	"author": {
+		"name": "Matthieu Thomas (cidrolin)"
+	},
 	"license": "MIT",
 	"devDependencies": {
 		"@codemirror/language": "^6.0.0",

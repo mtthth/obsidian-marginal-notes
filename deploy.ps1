@@ -4,6 +4,8 @@
 .PARAMETER VaultPath
     Chemin racine du vault Obsidian (le dossier qui contient .obsidian). Si omis, le script
     réutilise le chemin enregistré dans deploy.local.json, ou le demande interactivement.
+.NOTES
+    Auteur : Matthieu Thomas (cidrolin). Licence MIT.
 #>
 param(
 	[string]$VaultPath = ""

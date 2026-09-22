@@ -1,5 +1,7 @@
 # Marginal Notes
 
+Par Matthieu Thomas (cidrolin) · Licence MIT
+
 Plugin [Obsidian](https://obsidian.md) pour annoter ses textes dans la marge, paragraphe par paragraphe : une **couleur** et un **texte court** par paragraphe, une **minipage** qui montre toute la note d'un coup d'œil, et des **pages cornées** pour marquer les endroits où revenir. Pensé pour le travail d'écriture : savoir ce qui est à retravailler, en cours ou validé sans quitter le texte.
 
 Les annotations sont enregistrées dans la note elle-même, sous la forme d'un commentaire Obsidian (`%%…%%`) : pas de fichier annexe, rien à synchroniser.
@@ -129,4 +131,4 @@ La minipage ne se dessine pas d'après les hauteurs de CodeMirror : celles-ci ne
 
 ## Licence
 
-[MIT](LICENSE) © 2026 Matthieu Thomas
+[MIT](LICENSE) © 2026 Matthieu Thomas (cidrolin)
