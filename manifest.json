@@ -5,6 +5,6 @@
 	"minAppVersion": "1.4.0",
 	"description": "Étiquettes de couleur et de texte court dans la marge de l'éditeur, attachées à chaque paragraphe, pour annoter vos travaux d'écriture.",
 	"author": "Matthieu Thomas (cidrolin)",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/mtthth",
 	"isDesktopOnly": false
 }

@@ -9,7 +9,8 @@
 	},
 	"keywords": [],
 	"author": {
-		"name": "Matthieu Thomas (cidrolin)"
+		"name": "Matthieu Thomas (cidrolin)",
+		"url": "https://github.com/mtthth"
 	},
 	"license": "MIT",
 	"devDependencies": {
