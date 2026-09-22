@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { Menu } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { hasLabel, parseMarker } from "./model";

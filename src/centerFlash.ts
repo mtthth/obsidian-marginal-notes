@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { EditorView, ViewPlugin } from "@codemirror/view";
 import { paragraphAt } from "./paragraphs";
 import { flashParagraph } from "./flash";

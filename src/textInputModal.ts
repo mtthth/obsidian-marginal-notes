@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { App, Modal, Setting } from "obsidian";
 
 export class TextInputModal extends Modal {

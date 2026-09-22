@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 export interface BubbleSize {
 	/** Hauteur visée pour le centre de la bulle (celle de la zone étiquetée dans la minipage). */
 	center: number;

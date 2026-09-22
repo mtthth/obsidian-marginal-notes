@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import type { Text } from "@codemirror/state";
 import { blockCloser, frontmatterLastLine } from "./paragraphs";
 

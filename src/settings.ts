@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { App, PluginSettingTab, Setting } from "obsidian";
 import { DEFAULT_PALETTE, PaletteColor } from "./model";
 import { defaultProblemZones, ProblemZone } from "./problemZones";

@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 /** Un bloc de la minipage : la partie du texte `[from, to]` qu'il représente, et la tranche de hauteur qu'il y occupe. */
 export interface ModelItem {
 	from: number;

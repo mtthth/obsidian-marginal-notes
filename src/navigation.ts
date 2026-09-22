@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { Notice } from "obsidian";
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";

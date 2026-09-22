@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { EditorState } from "@codemirror/state";
 import type { MarkdownPostProcessorContext } from "obsidian";
 import { hasLabel } from "./model";

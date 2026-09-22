@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { EditorState, RangeSet, RangeSetBuilder, StateField } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, gutter, GutterMarker } from "@codemirror/view";
 import { hasLabel, refreshMarkersEffect } from "./model";

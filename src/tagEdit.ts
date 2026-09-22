@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { EditorView } from "@codemirror/view";
 import { encodeMarker, parseMarker, refreshMarkersEffect, ParagraphTag } from "./model";
 import { markerText, ParagraphBlock } from "./paragraphs";

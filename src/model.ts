@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { StateEffect } from "@codemirror/state";
 
 export interface PaletteColor {

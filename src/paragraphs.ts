@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { EditorState, Line, Text } from "@codemirror/state";
 import { parseMarker, ParagraphTag } from "./model";
 

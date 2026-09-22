@@ -1,3 +1,5 @@
+// Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
+
 import { Editor, MarkdownView, Menu, Notice, Plugin } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { DEFAULT_SETTINGS, MarginalNotesSettings, MarginalNotesSettingTab } from "./settings";
