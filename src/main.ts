@@ -169,8 +169,8 @@ export default class MarginalNotesPlugin extends Plugin {
 		// Une liste de zones que le fichier de données n'a pas, ou qu'on y a abîmée, repart de la liste par défaut ;
 		// dans tous les cas une copie : celle de DEFAULT_SETTINGS ne doit pas bouger quand on règle les zones.
 		this.settings.problemZones = readProblemZones(data?.problemZones);
-		const maxLength = Number(this.settings.problemMaxLength);
-		this.settings.problemMaxLength = Number.isFinite(maxLength) && maxLength >= 0 ? Math.floor(maxLength) : DEFAULT_SETTINGS.problemMaxLength;
+		// Réglage retiré en 0.1.19 (les zones se colorent toutes dans la minipage) : qu'il ne reste pas dans data.json.
+		Reflect.deleteProperty(this.settings, "problemMaxLength");
 	}
 
 	async saveSettings() {

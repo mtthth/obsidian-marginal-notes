@@ -23,11 +23,6 @@ export interface MarginalNotesSettings {
 	centerOnClick: boolean;
 	/** Les balisages qui signalent un endroit à reprendre, et la couleur dont la minipage les dessine. */
 	problemZones: ProblemZone[];
-	/**
-	 * Longueur (en caractères, balisage compris) au-delà de laquelle une zone n'a que son repère dans la
-	 * marge de la minipage, sans remplir sa ligne : un long texte annoté la remplirait toute. 0 : jamais.
-	 */
-	problemMaxLength: number;
 }
 
 export const DEFAULT_SETTINGS: MarginalNotesSettings = {
@@ -39,7 +34,6 @@ export const DEFAULT_SETTINGS: MarginalNotesSettings = {
 	minimapIndent: true,
 	centerOnClick: true,
 	problemZones: defaultProblemZones(),
-	problemMaxLength: 100,
 };
 
 export class MarginalNotesSettingTab extends PluginSettingTab {
@@ -144,7 +138,7 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("Minipage").setHeading();
 		new Setting(containerEl)
 			.setName("Afficher la minipage")
-			.setDesc("Vue d'ensemble de la note à droite de l'éditeur, avec les zones étiquetées en couleur. Cliquer dessus pour s'y rendre.")
+			.setDesc("Vue d'ensemble de la note à droite de l'éditeur. Comme dans la page, l'étiquette de chaque paragraphe y est dans la marge, et les zones à problème en couleur dans le texte. Cliquer dessus pour s'y rendre.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.showMinimap).onChange(async (value) => {
 					this.plugin.settings.showMinimap = value;
@@ -192,7 +186,7 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 		const { settings } = this.plugin;
 		new Setting(containerEl).setName("Zones à problème").setHeading();
 		containerEl.createEl("p", {
-			text: "Le texte compris entre une ouverture et une fermeture, sur une seule ligne, se repère dans la minipage : un trait de la couleur de la zone là où il se trouve dans sa ligne, et un repère dans la marge gauche. Sans fermeture, c'est l'ouverture qui ferme. Le frontmatter, les blocs de code, de maths et de commentaires sont ignorés.",
+			text: "Le texte compris entre une ouverture et une fermeture, sur une seule ligne, prend dans la minipage la couleur de la zone, là où il se trouve dans sa ligne. Sans fermeture, c'est l'ouverture qui ferme. Le frontmatter, les blocs de code, de maths et de commentaires sont ignorés.",
 			cls: "setting-item-description",
 		});
 
@@ -260,22 +254,5 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 					this.display();
 				})
 			);
-
-		new Setting(containerEl)
-			.setName("Longueur maximale du trait")
-			.setDesc("Au-delà de ce nombre de caractères (balisage compris), une zone n'a que son repère dans la marge de la minipage, sans remplir sa ligne. 0 : toujours remplir.")
-			.addText((text) => {
-				text.inputEl.size = 6;
-				text.inputEl.type = "number";
-				text.inputEl.min = "0";
-				text.setValue(String(settings.problemMaxLength)).onChange(async (value) => {
-					const length = Number.parseInt(value, 10);
-					// Un champ vide ou illisible, le temps de la frappe, ne change rien.
-					if (!Number.isFinite(length) || length < 0) return;
-					settings.problemMaxLength = length;
-					await this.plugin.saveSettings();
-					this.plugin.refreshEditorViews();
-				});
-			});
 	}
 }

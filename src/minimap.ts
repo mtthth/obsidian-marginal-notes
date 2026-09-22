@@ -1,7 +1,7 @@
 import { Platform } from "obsidian";
 import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
-import { refreshMarkersEffect } from "./model";
+import { hasLabel, refreshMarkersEffect } from "./model";
 import {
 	allParagraphs,
 	allSections,
@@ -31,8 +31,7 @@ const MAX_ROW_HEIGHT = 3;
 /**
  * En dessous de cette hauteur de ligne, il n'y a plus de place pour un interligne. « Bloc plein » dessine
  * alors un bloc d'un seul aplat ; « Paragraphes » des rangées pleines qui se touchent, jusqu'à ne plus
- * former qu'un aplat dont on ne voit que le contour. C'est aussi la hauteur plancher d'un court
- * paragraphe étiqueté.
+ * former qu'un aplat dont on ne voit que le contour.
  */
 const MIN_ROW_HEIGHT = 2;
 /**
@@ -47,8 +46,8 @@ const RUN_END_FILL_MAX = 0.85;
 const TEXT_ALPHA = 0.45;
 const FRONTMATTER_ALPHA = 0.25;
 /**
- * Paragraphe survolé, dessiné plus soutenu : ses lignes ordinaires gagnent en opacité, et une bande
- * de couleur, déjà opaque, se rapproche de la couleur du texte (plus foncée en thème clair).
+ * Paragraphe survolé, dessiné plus soutenu : ses lignes gagnent en opacité, et le trait de son étiquette,
+ * s'il est en couleur, se rapproche de la couleur du texte (plus foncé en thème clair).
  */
 const HOVER_ALPHA_BOOST = 0.45;
 const HOVER_COLOR_MIX = 0.35;
@@ -91,14 +90,23 @@ const CORNER_SIZE = Platform.isMobile ? 4 : 8;
 const CORNER_COLOR = "#ff2d2d";
 /**
  * Zones à problème (réglées dans les options : par défaut ==surligné==, `code`, ~~barré~~, {{à faire}}) :
- * un trait sur la ligne où elles se trouvent, large d'au moins PROBLEM_MIN_WIDTH ; et, dans la marge
- * gauche, un repère qu'aucune couleur de bande ne recouvre. Le repère, et le trait quand le texte est trop
- * comprimé pour que ses lignes se distinguent, ne font pas moins de PROBLEM_MIN_HEIGHT : une zone se voit
- * même dans une note si longue que sa ligne n'y fait plus un pixel.
+ * colorées dans le texte, comme dans la page, là où elles se trouvent dans leur ligne, sur une largeur
+ * d'au moins PROBLEM_MIN_WIDTH ; et, quand le texte est trop comprimé pour que ses lignes se distinguent,
+ * sur une hauteur d'au moins PROBLEM_MIN_HEIGHT : une zone se voit même dans une note si longue que sa
+ * ligne n'y fait plus un pixel.
  */
 const PROBLEM_MIN_HEIGHT = 2;
 const PROBLEM_MIN_WIDTH = 3;
-const PROBLEM_TICK_X = 1;
+/**
+ * Étiquette d'un paragraphe : comme l'ovale de la gouttière dans la page, un trait vertical aux bouts
+ * arrondis dans la marge gauche de la minipage, de la hauteur du paragraphe ; ses lignes, elles, restent
+ * celles d'un texte ordinaire. Jamais moins haut que TAG_MIN_HEIGHT, pour qu'un court paragraphe étiqueté
+ * se voie même dans une longue note. Une étiquette sans couleur a un trait pâle, de la couleur du texte.
+ */
+const TAG_BAR_X = PADDING_X / 4;
+const TAG_BAR_WIDTH = PADDING_X / 2;
+const TAG_MIN_HEIGHT = 4;
+const TAG_COLORLESS_ALPHA = 0.3;
 
 /**
  * Un bloc de la note, tel que la minipage le pose : une ligne du texte (ou, si du texte y est replié,
@@ -132,7 +140,6 @@ interface Band {
 	lastRowFill: number;
 	/** Le bloc ouvre un paragraphe (rien avant lui, ou une ligne vide) : sa première rangée est en retrait. */
 	startsRun: boolean;
-	color: string | undefined;
 	alpha: number;
 	/** Zones à reprendre du bloc, une par rangée qu'elles traversent. */
 	problems: ProblemMark[];
@@ -144,8 +151,16 @@ interface ProblemMark {
 	start: number;
 	end: number;
 	color: string;
-	/** Zone trop longue pour remplir sa ligne (voir `problemMaxLength`) : elle n'a que son repère dans la marge. */
-	long: boolean;
+}
+
+/** Trait d'une étiquette dans la marge gauche, en face de tout son paragraphe. */
+interface TagBar {
+	/** Position du texte où le paragraphe commence : de quoi savoir s'il est survolé. */
+	from: number;
+	top: number;
+	height: number;
+	/** Absente pour une étiquette qui n'a que du texte, ou dont la couleur n'est plus dans la palette. */
+	color: string | undefined;
 }
 
 interface Label {
@@ -185,6 +200,21 @@ function mixColors(color: string, target: string, share: number): string {
 	return `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * share)).join(", ")})`;
 }
 
+/** Rectangle aux bouts arrondis, comme l'ovale de la gouttière ; un simple rond s'il est plus large que haut. */
+function fillRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+	const r = Math.min(width, height) / 2;
+	const right = x + width;
+	const bottom = y + height;
+	ctx.beginPath();
+	ctx.moveTo(x + r, y);
+	ctx.arcTo(right, y, right, bottom, r);
+	ctx.arcTo(right, bottom, x, bottom, r);
+	ctx.arcTo(x, bottom, x, y, r);
+	ctx.arcTo(x, y, right, y, r);
+	ctx.closePath();
+	ctx.fill();
+}
+
 /** Rang d'un repère de section : quand la place manque, un chapitre ou un trait l'emporte sur une partie. */
 function sectionRank(section: SectionBoundary): number {
 	return section.level === 3 ? 0 : 1;
@@ -218,8 +248,9 @@ class MinimapView {
 	/** Les blocs de la note et leurs hauteurs, refaits à chaque dessin. */
 	private model = new StackModel<Block>([]);
 	private contentHeight = 0;
-	/** Bandes et pages cornées de la dernière mise en page : de quoi repeindre le canevas sans la refaire. */
+	/** Bandes, traits d'étiquettes et pages cornées de la dernière mise en page : de quoi repeindre le canevas sans la refaire. */
 	private bands: Band[] = [];
+	private tags: TagBar[] = [];
 	private corners: number[] = [];
 	/** Texte du paragraphe que la minipage dessine sous le pointeur, ou d'une bulle ou d'un repère qu'il survole. */
 	private hover: { from: number; to: number } | null = null;
@@ -366,7 +397,7 @@ class MinimapView {
 		this.scale = Math.min(available / this.model.total, MAX_ROW_HEIGHT / lineHeight);
 		this.contentHeight = Math.floor(this.model.total * this.scale);
 
-		const { bands, labels, corners } = this.layout();
+		const { bands, tags, labels, corners } = this.layout();
 
 		const height = this.contentHeight;
 		const ratio = window.devicePixelRatio || 1;
@@ -383,6 +414,7 @@ class MinimapView {
 		this.renderBubbles();
 
 		this.bands = bands;
+		this.tags = tags;
 		this.corners = corners;
 		this.paint();
 		this.applyHover();
@@ -401,6 +433,7 @@ class MinimapView {
 		this.paintMatches(ctx);
 		this.paintBands(ctx, this.bands, textColor, ratio);
 		this.paintProblems(ctx, this.bands, ratio);
+		this.paintTags(ctx, this.tags, textColor, ratio);
 		this.paintCorners(ctx, this.corners);
 	}
 
@@ -473,18 +506,19 @@ class MinimapView {
 		return new StackModel(blocks);
 	}
 
-	/** Bandes de texte, étiquettes et pages cornées de la note, positionnées à l'échelle courante. */
-	private layout(): { bands: Band[]; labels: Label[]; corners: number[] } {
+	/** Bandes de texte, étiquettes (traits et bulles) et pages cornées de la note, positionnées à l'échelle courante. */
+	private layout(): { bands: Band[]; tags: TagBar[]; labels: Label[]; corners: number[] } {
 		const { view, scale } = this;
 		const tagged = view.state.field(this.tagField).tagged;
 		const frontmatterEnd = frontmatterLastLine(view.state.doc);
 		const byParagraph = this.byParagraph;
 		const bands: Band[] = [];
+		const tags: TagBar[] = [];
 		const labels: Label[] = [];
 		/** Hauteurs, dans la minipage, des coins repliés à dessiner. */
 		const corners: number[] = [];
 		const problems = this.syncProblems();
-		const { problemZones, problemMaxLength } = this.plugin.settings;
+		const { problemZones } = this.plugin.settings;
 		const perRow = this.charsPerRow;
 		let t = 0;
 		let p = 0;
@@ -497,10 +531,8 @@ class MinimapView {
 			for (; p < problems.length && problems[p].from <= item.to; p++) {
 				const span = problems[p];
 				const color = problemZones[span.zone]?.color;
-				if (color) this.markProblem(marks, span, item, perRow, color, problemMaxLength > 0 && span.to - span.from > problemMaxLength);
+				if (color) this.markProblem(marks, span, item, perRow, color);
 			}
-			const zone = t < tagged.length && tagged[t].block.from <= item.from ? tagged[t] : undefined;
-			const color = this.plugin.paletteColor(zone?.tag.color);
 			const top = item.top * scale;
 			bands.push({
 				from: item.from,
@@ -510,27 +542,25 @@ class MinimapView {
 				// Même sans ligne vide dessinée, la dernière rangée se lit comme la fin d'un paragraphe.
 				lastRowFill: byParagraph && item.endsRun ? Math.min(item.lastRowFill, RUN_END_FILL_MAX) : item.lastRowFill,
 				startsRun: item.startsRun,
-				color,
-				alpha: color ? 1 : item.line <= frontmatterEnd ? FRONTMATTER_ALPHA : TEXT_ALPHA,
+				alpha: item.line <= frontmatterEnd ? FRONTMATTER_ALPHA : TEXT_ALPHA,
 				problems: marks,
 			});
 
-			if (zone?.tag.corner && zone.block.from === item.from) corners.push(top);
+			// L'étiquette se pose une fois, au premier bloc de son paragraphe, pour tout le paragraphe.
+			const zone = t < tagged.length && tagged[t].block.from === item.from ? tagged[t] : undefined;
+			if (!zone) continue;
+			if (zone.tag.corner) corners.push(top);
+			const color = this.plugin.paletteColor(zone.tag.color);
+			const zoneHeight = this.model.bottom(zone.block.to) * scale - top;
+			// Comme la gouttière : un trait pour toute étiquette, en couleur ou non, mais pas pour une simple corne.
+			if (hasLabel(zone.tag)) tags.push({ from: item.from, top, height: zoneHeight, color });
 
 			// Sans texte à elle, une étiquette de couleur porte le libellé de cette couleur dans la palette ;
 			// une clé qui n'y est plus (donc sans couleur), ou un libellé vide, ne donne pas de bulle.
-			const text = zone?.tag.text ?? (color ? this.plugin.paletteLabel(zone?.tag.color) : undefined);
-			if (zone && text && zone.block.from === item.from) {
-				labels.push({
-					top,
-					zoneHeight: this.model.bottom(zone.block.to) * scale - top,
-					text,
-					color,
-					pos: zone.block.markerFrom + zone.matchLength,
-				});
-			}
+			const text = zone.tag.text ?? (color ? this.plugin.paletteLabel(zone.tag.color) : undefined);
+			if (text) labels.push({ top, zoneHeight, text, color, pos: zone.block.markerFrom + zone.matchLength });
 		}
-		return { bands, labels, corners };
+		return { bands, tags, labels, corners };
 	}
 
 	/** Les zones à problème de la note, relevées seulement quand son texte ou la liste des balisages a changé. */
@@ -552,7 +582,7 @@ class MinimapView {
 	 * retour à la ligne entre les mots). Une zone qui déborde du bloc, dans du texte qui y est replié,
 	 * est ramenée au bout de sa première ligne : la seule que le modèle dessine.
 	 */
-	private markProblem(marks: ProblemMark[], span: ProblemSpan, item: Block, perRow: number, color: string, long: boolean) {
+	private markProblem(marks: ProblemMark[], span: ProblemSpan, item: Block, perRow: number, color: string) {
 		const start = Math.min(item.length, span.from - item.from);
 		const end = Math.min(item.length, Math.max(start, span.to - item.from));
 		const last = item.rows - 1;
@@ -562,7 +592,6 @@ class MinimapView {
 				start: Math.max(0, start - row * perRow) / perRow,
 				end: Math.min(perRow, Math.max(0, end - row * perRow)) / perRow,
 				color,
-				long,
 			});
 		}
 	}
@@ -579,23 +608,13 @@ class MinimapView {
 
 	/** Couleur et opacité de la bande ; plus soutenues si elle fait partie du paragraphe survolé. */
 	private setBandStyle(ctx: CanvasRenderingContext2D, band: Band, textColor: string) {
-		if (!this.inHover(band.from)) {
-			ctx.fillStyle = band.color ?? textColor;
-			ctx.globalAlpha = band.alpha;
-		} else if (band.color) {
-			// Déjà opaque : seule sa couleur peut changer.
-			ctx.fillStyle = mixColors(band.color, textColor, HOVER_COLOR_MIX);
-			ctx.globalAlpha = 1;
-		} else {
-			ctx.fillStyle = textColor;
-			ctx.globalAlpha = Math.min(1, band.alpha + HOVER_ALPHA_BOOST);
-		}
+		ctx.fillStyle = textColor;
+		ctx.globalAlpha = this.inHover(band.from) ? Math.min(1, band.alpha + HOVER_ALPHA_BOOST) : band.alpha;
 	}
 
-	/** Un aplat, avec une hauteur plancher pour qu'un court paragraphe étiqueté reste visible même dans une longue note. */
+	/** Un aplat, d'au moins un pixel de haut. */
 	private fillFlat(ctx: CanvasRenderingContext2D, band: Band) {
-		const minHeight = band.color ? MIN_ROW_HEIGHT : 1;
-		ctx.fillRect(PADDING_X, band.top, WIDTH - 2 * PADDING_X, Math.max(band.height, minHeight));
+		ctx.fillRect(PADDING_X, band.top, WIDTH - 2 * PADDING_X, Math.max(band.height, 1));
 	}
 
 	/** Style « Bloc plein » : un aplat par bloc dès que ses lignes seraient trop serrées pour se distinguer. */
@@ -652,8 +671,7 @@ class MinimapView {
 			}
 
 			const top = snap(band.top);
-			// Un court paragraphe étiqueté ne descend pas sous MIN_ROW_HEIGHT, ni un autre sous un pixel.
-			const bottom = Math.max(snap(band.top + band.height), top + (band.color ? Math.ceil(MIN_ROW_HEIGHT * ratio) / ratio : pixel));
+			const bottom = Math.max(snap(band.top + band.height), top + pixel);
 			if (band.rows === 1) {
 				fill(indent, lastRight, top, bottom);
 				continue;
@@ -668,12 +686,10 @@ class MinimapView {
 	}
 
 	/**
-	 * Zones à problème (voir problemZones.ts), par-dessus les lignes, chacune dans sa couleur : un trait là
-	 * où elles se trouvent dans leur ligne, de la hauteur de la barre qu'il recouvre pour que la forme du
-	 * paragraphe reste lisible, sauf pour une zone trop longue, qui l'aurait remplie ; et, dans la marge
-	 * gauche, un repère qui se lit quelle que soit la couleur de la bande et qui, d'une rangée à l'autre,
-	 * forme un trait continu sur toute la hauteur de la zone. Aucun des deux ne descend sous une taille
-	 * minimale : une zone reste visible dans une note si longue que sa ligne n'y fait plus un pixel.
+	 * Zones à problème (voir problemZones.ts), par-dessus les lignes, chacune dans sa couleur : là où elles
+	 * se trouvent dans leur ligne, de la hauteur de la barre qu'elles recouvrent pour que la forme du
+	 * paragraphe reste lisible. Jamais sous une taille minimale : une zone reste visible dans une note si
+	 * longue que sa ligne n'y fait plus un pixel.
 	 */
 	private paintProblems(ctx: CanvasRenderingContext2D, bands: Band[], ratio: number) {
 		if (!bands.some((band) => band.problems.length > 0)) return;
@@ -681,7 +697,7 @@ class MinimapView {
 		const indented = this.byParagraph && this.plugin.settings.minimapIndent;
 		const pixel = 1 / ratio;
 		const snap = (y: number) => Math.round(y * ratio) / ratio;
-		// paintBands laisse l'opacité de sa dernière bande : un repère, lui, est toujours opaque.
+		// paintBands laisse l'opacité de sa dernière bande : une zone, elle, est toujours opaque.
 		ctx.globalAlpha = 1;
 		for (const band of bands) {
 			const rowHeight = band.height / band.rows;
@@ -691,11 +707,6 @@ class MinimapView {
 				ctx.fillStyle = mark.color;
 				const rowTop = band.top + mark.row * rowHeight;
 				const rowBottom = rowTop + rowHeight;
-				const gutterTop = snap(rowTop);
-				const gutterBottom = Math.max(snap(rowBottom), gutterTop + PROBLEM_MIN_HEIGHT);
-				ctx.fillRect(PROBLEM_TICK_X, gutterTop, PADDING_X - 2 * PROBLEM_TICK_X, gutterBottom - gutterTop);
-				if (mark.long) continue;
-
 				const margin = spaced ? rowHeight * 0.2 : 0;
 				const top = snap(rowTop + margin);
 				const bottom = Math.max(snap(rowBottom - margin), top + (spaced ? pixel : PROBLEM_MIN_HEIGHT));
@@ -710,9 +721,34 @@ class MinimapView {
 	}
 
 	/**
+	 * Traits des étiquettes dans la marge gauche (voir TAG_BAR_X), un par paragraphe étiqueté, plus soutenus
+	 * s'il est survolé. Un pixel d'écran de moins en bas : dans la minipage, deux paragraphes qui se suivent
+	 * n'ont pas toujours de ligne vide entre eux, et deux traits de même couleur ne doivent pas se confondre.
+	 */
+	private paintTags(ctx: CanvasRenderingContext2D, tags: TagBar[], textColor: string, ratio: number) {
+		if (tags.length === 0) return;
+		const snap = (y: number) => Math.round(y * ratio) / ratio;
+		const left = snap(TAG_BAR_X);
+		const width = snap(TAG_BAR_X + TAG_BAR_WIDTH) - left;
+		for (const tag of tags) {
+			const lit = this.inHover(tag.from);
+			if (tag.color) {
+				ctx.fillStyle = lit ? mixColors(tag.color, textColor, HOVER_COLOR_MIX) : tag.color;
+				ctx.globalAlpha = 1;
+			} else {
+				ctx.fillStyle = textColor;
+				ctx.globalAlpha = lit ? TAG_COLORLESS_ALPHA + HOVER_ALPHA_BOOST : TAG_COLORLESS_ALPHA;
+			}
+			const top = snap(tag.top);
+			const bottom = Math.max(snap(tag.top + tag.height) - 1 / ratio, top + TAG_MIN_HEIGHT);
+			fillRoundedBar(ctx, left, top, width, bottom - top);
+		}
+	}
+
+	/**
 	 * Fond des blocs où apparaît le mot tapé dans la barre de recherche d'Obsidian (Ctrl+F). Peint sous
-	 * les lignes et sur toute la largeur, il déborde dans les marges : un bloc étiqueté, dont les lignes
-	 * sont opaques, y reste repérable sans perdre sa couleur.
+	 * les lignes et sur toute la largeur, il déborde dans les marges, où les traits des étiquettes se
+	 * dessinent par-dessus : un bloc étiqueté y reste repérable sans perdre sa couleur.
 	 */
 	private paintMatches(ctx: CanvasRenderingContext2D) {
 		const { view } = this;

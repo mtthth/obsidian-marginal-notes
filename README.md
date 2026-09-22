@@ -19,11 +19,11 @@ Une vue d'ensemble de la note, à droite de l'éditeur, qui la représente « d�
 
 - **Clic** : centre le paragraphe visé, pose le curseur dedans et le fait clignoter. **Glisser** : fait défiler la note. **Molette** : avance ou recule d'un paragraphe par cran.
 - Un cadre indique la portion de la note visible dans l'éditeur.
-- Les paragraphes étiquetés y apparaissent dans leur couleur. Au survol, leurs **bulles** affichent le texte de l'étiquette (à défaut, le libellé de sa couleur dans la palette) et une pointe les relie à leur paragraphe, et les **repères de sections** numérotent les titres de niveau 2 et 3 (1, 1.1…) ; un trait de séparation y est marqué d'une étoile. Cliquer sur une bulle ou un repère y mène.
+- Elle représente la page : l'étiquette d'un paragraphe y est, comme dans la gouttière, un trait vertical de sa couleur dans la marge gauche, de la hauteur du paragraphe (pâle pour une étiquette sans couleur), et ses lignes restent celles d'un texte ordinaire. Au survol, leurs **bulles** affichent le texte de l'étiquette (à défaut, le libellé de sa couleur dans la palette) et une pointe les relie à leur paragraphe, et les **repères de sections** numérotent les titres de niveau 2 et 3 (1, 1.1…) ; un trait de séparation y est marqué d'une étoile. Cliquer sur une bulle ou un repère y mène.
 - **Survol d'un paragraphe** : il se dessine plus soutenu, comme sa bulle ou son repère de section, et un **aperçu de son texte** s'affiche sur le tiers gauche de l'éditeur, coupé par des points de suspension s'il est trop long.
 - **Vue 2 des bulles** : tant que **Ctrl** est enfoncé pendant le survol, les bulles se rangent toutes sur une même verticale, à intervalles réguliers, avec des pointes inclinées qui ne se croisent pas. Quand il y en a trop pour une colonne, une deuxième colonne, à gauche de la première, prend une bulle sur deux, les deux s'entrelaçant dans l'ordre du texte, sans que les pointes se croisent (les intervalles de la deuxième colonne peuvent alors être irréguliers) ; s'il y en a trop même pour deux colonnes, seules quelques-unes, réparties dans la liste, sont montrées. Relâcher Ctrl ramène la **vue 1**, chaque bulle en face de son paragraphe.
 - **Recherche** : quand un mot est tapé dans la barre de recherche d'Obsidian (Ctrl+F), chaque occurrence est encadrée dans le texte et les blocs concernés sont mis en valeur dans la minipage.
-- **Zones à problème** : le texte balisé en `==surligné==`, `` `code` ``, `~~barré~~` ou `{{à faire}}` (sur une seule ligne, hors frontmatter et blocs de code) apparaît dans la couleur de son balisage, à sa place dans sa ligne, et dans la marge gauche de la minipage, où un repère continu couvre toute la hauteur de la zone, quelle que soit la couleur du paragraphe. Une zone plus longue que la **longueur maximale** (100 caractères par défaut) n'a que son repère dans la marge : un long texte annoté remplirait toute la minipage. La liste des balisages, leurs couleurs et cette longueur se règlent dans les options.
+- **Zones à problème** : le texte balisé en `==surligné==`, `` `code` ``, `~~barré~~` ou `{{à faire}}` (sur une seule ligne, hors frontmatter et blocs de code) apparaît dans la couleur de son balisage, à sa place dans sa ligne, quelle que soit sa longueur. La liste des balisages et leurs couleurs se règlent dans les options.
 - **Clic droit dans la minipage** : corne ou décorne le paragraphe visé, sans s'y rendre.
 - Sur mobile, la minipage est deux fois plus étroite et sert seulement à naviguer.
 
@@ -53,10 +53,10 @@ Aucun raccourci n'est défini par défaut : à assigner dans *Réglages → Racc
 *Réglages → Marginal Notes* :
 
 - **Palette de couleurs** : libellé et couleur de chaque entrée, ajout et suppression. Renommer ou recolorer une entrée met à jour tous les paragraphes qui l'utilisent.
-- **Colorer le fond des paragraphes** étiquetés, dans l'éditeur et en mode lecture (désactivé : la couleur ne se voit plus que dans l'ovale de la gouttière et dans la minipage), et sa **transparence** (0 % = couleur pleine, 100 % = aucun fond).
+- **Colorer le fond des paragraphes** étiquetés, dans l'éditeur et en mode lecture (désactivé : la couleur ne se voit plus que dans l'ovale de la gouttière et dans la marge de la minipage), et sa **transparence** (0 % = couleur pleine, 100 % = aucun fond).
 - **Centrer le paragraphe au clic**.
 - **Afficher la minipage**, son **style** (*Bloc plein* ou *Paragraphes*) et l'**alinéa**.
-- **Zones à problème** : la liste des balisages repérés dans la minipage (ouverture, fermeture, couleur ; par défaut `==…==`, `` `…` ``, `~~…~~` et `{{…}}`), qu'on peut compléter ou rétablir, et la **longueur maximale** du trait dans la ligne (0 : toujours remplir).
+- **Zones à problème** : la liste des balisages repérés dans la minipage (ouverture, fermeture, couleur ; par défaut `==…==`, `` `…` ``, `~~…~~` et `{{…}}`), qu'on peut compléter ou rétablir.
 
 ## Format dans la note
 
