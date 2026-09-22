@@ -5,7 +5,6 @@ import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { hasLabel, refreshMarkersEffect } from "./model";
 import {
-	allParagraphs,
 	allSections,
 	frontmatterLastLine,
 	paragraphAt,
@@ -15,7 +14,7 @@ import {
 	type SectionBoundary,
 } from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
-import { rememberCentred } from "./navigation";
+import { rememberCentred, rememberScrolled } from "./navigation";
 import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
 import { problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
@@ -284,10 +283,9 @@ class MinimapView {
 	private flashed: { from: number; to: number } | null = null;
 	private flashTimer = 0;
 	private dragging = false;
-	/** Molette : reliquat pas encore converti en cran, taille mesurée d'un cran, paragraphe atteint. */
+	/** Molette : reliquat pas encore converti en cran, et taille mesurée d'un cran. */
 	private wheelDelta = 0;
 	private wheelNotch = 0;
-	private stepIndex: number | null = null;
 	/** Mot tapé dans la barre de recherche d'Obsidian (Ctrl+F), et les blocs où il apparaît. */
 	private search: SearchWatcher;
 
@@ -336,7 +334,6 @@ class MinimapView {
 			update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshMarkersEffect)))
 		) {
 			if (update.docChanged) {
-				this.resetStepping();
 				// Les positions retenues ne désignent plus le même texte.
 				this.flashed = null;
 				this.hover = null;
@@ -1041,8 +1038,6 @@ class MinimapView {
 		if (event.button !== 0 || !this.scale) return;
 		event.preventDefault();
 		event.stopPropagation();
-		// Le prochain cran de molette repartira d'ici, et non du paragraphe atteint avant le clic.
-		this.resetStepping();
 
 		// Un clic sur une bulle ou sur un repère de section mène à ce qu'il désigne, même s'il a été
 		// décalé pour ne pas en recouvrir un autre.
@@ -1099,7 +1094,7 @@ class MinimapView {
 	};
 
 	private onPointerLeave = () => {
-		this.resetStepping();
+		this.resetWheel();
 		this.setHover(null);
 		this.stopWatchingCtrl();
 		this.setBubbleView(1);
@@ -1202,10 +1197,10 @@ class MinimapView {
 	}
 
 	// La minipage est hors de la zone de défilement de l'éditeur : la molette n'y agit pas d'elle-même.
-	// On la relaie en pas de lecture : un cran amène le paragraphe suivant au centre et le fait
-	// clignoter. La taille d'un cran vient du système et ne se déduit pas de la police : on la mesure
-	// sur le plus grand delta reçu. Une souris donne alors exactement un paragraphe par cran ; la
-	// rafale de petits deltas d'un pavé tactile s'accumule jusqu'à un pas, proportionnel à la distance.
+	// On la relaie page par page : un cran fait défiler l'éditeur de toute sa hauteur visible. La
+	// taille d'un cran vient du système et ne se déduit pas de la police : on la mesure sur le plus
+	// grand delta reçu. Une souris donne alors exactement une page par cran ; la rafale de petits
+	// deltas d'un pavé tactile s'accumule jusqu'à un cran, proportionnel à la distance.
 	private onWheel = (event: WheelEvent) => {
 		if (event.ctrlKey || !this.scale || event.deltaY === 0) return;
 		event.preventDefault();
@@ -1224,31 +1219,18 @@ class MinimapView {
 		const steps = Math.trunc(this.wheelDelta / this.wheelNotch);
 		if (!steps) return;
 		this.wheelDelta -= steps * this.wheelNotch;
-		this.stepParagraphs(steps);
+		// Sans animation : un cran reçu pendant qu'elle court partirait d'une position intermédiaire.
+		// Le navigateur arrête le défilement aux bords de la note.
+		view.scrollDOM.scrollTop += steps * view.scrollDOM.clientHeight;
+		// C'est l'utilisateur qui a mené la vue là : un clic dans le texte n'a pas à la recentrer.
+		rememberScrolled(view);
 	};
 
-	/** Oublie où l'on en était : le prochain cran de molette repartira de ce qui est à l'écran. */
-	private resetStepping = () => {
-		this.stepIndex = null;
+	/** Oublie le reliquat et la taille du cran : le prochain appareil n'a peut-être pas les mêmes. */
+	private resetWheel = () => {
 		this.wheelDelta = 0;
 		this.wheelNotch = 0;
 	};
-
-	/** Avance de `steps` paragraphes (négatif : recule), depuis le dernier cran ou depuis le milieu de l'écran. */
-	private stepParagraphs(steps: number) {
-		const { view } = this;
-		const blocks = allParagraphs(view.state);
-		if (blocks.length === 0) return;
-		const current = this.stepIndex ?? this.centerIndex(blocks);
-		const index = Math.min(blocks.length - 1, Math.max(0, current + steps));
-		// Rien à faire si le bord du document a ramené le pas sur place, ou à contresens du cran
-		// (molette vers le haut alors qu'on est déjà avant le premier paragraphe, dans le frontmatter).
-		if (Math.sign(index - current) !== Math.sign(steps)) return;
-		this.stepIndex = index;
-		const block = blocks[index];
-		this.scrollToPos(block.from, false);
-		this.flash(block);
-	}
 
 	/**
 	 * Fait clignoter un paragraphe des deux côtés — sa bande dans la minipage, son texte dans l'éditeur
@@ -1284,19 +1266,6 @@ class MinimapView {
 		const bottom = this.model.bottom(flashed.to) * this.scale;
 		this.flashEl.style.top = `${top}px`;
 		this.flashEl.style.height = `${Math.max(bottom - top, MIN_FLASH_HEIGHT)}px`;
-	}
-
-	/**
-	 * Indice du paragraphe au milieu de la zone visible, point de départ d'une série de crans.
-	 * Vaut -1 avant le premier paragraphe (frontmatter), pour qu'un cran vers le bas y mène.
-	 */
-	private centerIndex(blocks: ParagraphBlock[]): number {
-		const { view } = this;
-		const scrolled = view.scrollDOM.getBoundingClientRect().top - view.documentTop;
-		const pos = view.lineBlockAtHeight(scrolled + view.scrollDOM.clientHeight / 2).from;
-		let index = -1;
-		while (index + 1 < blocks.length && blocks[index + 1].from <= pos) index++;
-		return index;
 	}
 
 	/** Hauteur, dans le modèle, de ce que la minipage dessine sous le pointeur, à la hauteur `clientY`. */

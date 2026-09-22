@@ -19,7 +19,7 @@ Les annotations sont enregistrées dans la note elle-même, sous la forme d'un c
 
 Une vue d'ensemble de la note, à droite de l'éditeur, qui la représente « dézoomée » dans la hauteur visible.
 
-- **Clic** : centre le paragraphe visé, pose le curseur dedans et le fait clignoter. **Glisser** : fait défiler la note. **Molette** : avance ou recule d'un paragraphe par cran.
+- **Clic** : centre le paragraphe visé, pose le curseur dedans et le fait clignoter. **Glisser** : fait défiler la note. **Molette** : avance ou recule d'une page par cran, c'est-à-dire de toute la hauteur visible de l'éditeur.
 - Un cadre indique la portion de la note visible dans l'éditeur.
 - Elle représente la page : l'étiquette d'un paragraphe y est, comme dans la gouttière, un trait vertical de sa couleur dans la marge gauche, de la hauteur du paragraphe (pâle pour une étiquette sans couleur), et ses lignes restent celles d'un texte ordinaire. Au survol, leurs **bulles** affichent le texte de l'étiquette (à défaut, le libellé de sa couleur dans la palette) et une pointe les relie à leur paragraphe, et les **repères de sections** numérotent les titres de niveau 2 et 3 (1, 1.1…) ; un trait de séparation y est marqué d'une étoile. Cliquer sur une bulle ou un repère y mène.
 - **Survol d'un paragraphe** : il se dessine plus soutenu, comme sa bulle ou son repère de section, et un **aperçu de son texte** s'affiche sur le tiers gauche de l'éditeur, coupé par des points de suspension s'il est trop long.
