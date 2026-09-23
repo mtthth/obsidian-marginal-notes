@@ -1038,6 +1038,10 @@ class MinimapView {
 		if (event.button !== 0 || !this.scale) return;
 		event.preventDefault();
 		event.stopPropagation();
+		// Sur mobile, empêcher l'appui retire aussi au toucher son effet ordinaire : ôter le focus à
+		// l'éditeur. Resté en place, il ferait surgir le clavier dès que le saut ci-dessous remue la
+		// sélection de CM6. On le retire donc soi-même, avant tout défilement.
+		if (Platform.isMobile && this.view.hasFocus) this.view.contentDOM.blur();
 
 		// Un clic sur une bulle ou sur un repère de section mène à ce qu'il désigne, même s'il a été
 		// décalé pour ne pas en recouvrir un autre.

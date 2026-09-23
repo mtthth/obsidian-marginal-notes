@@ -27,7 +27,7 @@ Une vue d'ensemble de la note, à droite de l'éditeur, qui la représente « d�
 - **Recherche** : quand un mot est tapé dans la barre de recherche d'Obsidian (Ctrl+F), chaque occurrence est encadrée dans le texte et les blocs concernés sont mis en valeur dans la minipage.
 - **Zones à problème** : le texte balisé en `==surligné==`, `` `code` ``, `~~barré~~` ou `{{à faire}}` (sur une seule ligne, hors frontmatter et blocs de code) apparaît dans la couleur de son balisage, à sa place dans sa ligne, quelle que soit sa longueur. La liste des balisages et leurs couleurs se règlent dans les options.
 - **Clic droit dans la minipage** : corne ou décorne le paragraphe visé, sans s'y rendre.
-- Sur mobile, la minipage est deux fois plus étroite et sert seulement à naviguer.
+- Sur mobile, la minipage est deux fois plus étroite et sert seulement à naviguer : la toucher ne fait pas apparaître le clavier (et le referme s'il était ouvert).
 
 Le **style** de la minipage se règle : *Bloc plein* (un aplat par bloc de texte, séparé du suivant par la ligne vide de la note) ou *Paragraphes* (les lignes vides disparaissent, et chaque paragraphe se reconnaît à sa dernière ligne plus courte et, au choix, à son alinéa).
 
