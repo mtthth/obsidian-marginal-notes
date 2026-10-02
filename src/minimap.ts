@@ -65,7 +65,9 @@ const SEARCH_ALPHA = 0.9;
 const POINT_EVENT = "burr:point";
 const POINTED_COLOR = "#ff8c00";
 /** Hauteur plancher d'un passage désigné : un paragraphe court ferait à peine un pixel. */
-const MIN_POINTED_HEIGHT = 6;
+const MIN_POINTED_HEIGHT = 3;
+/** Opacité de la teinte du paragraphe qui contient un passage désigné. */
+const POINTED_TINT_ALPHA = 0.3;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe, en plus de la colonne des repères de sections. */
@@ -793,19 +795,26 @@ class MinimapView {
 	}
 
 	/**
-	 * Paragraphes des passages désignés par un autre plugin : un cadre plein et marqué sur toute la largeur,
-	 * par-dessus le dessin, pour qu'on voie d'un coup d'œil où se trouvent les deux occurrences.
+	 * Passages désignés par un autre plugin : le paragraphe en teinte légère, et par-dessus, un trait plein
+	 * à la hauteur exacte du passage. Deux passages d'un même paragraphe, ou voisins, restent ainsi distincts.
 	 */
 	private paintPointed(ctx: CanvasRenderingContext2D) {
 		if (this.pointed.length === 0 || !this.scale) return;
 		const { state } = this.view;
 		ctx.fillStyle = getComputedStyle(this.dom).getPropertyValue("--mn-pointed-color").trim() || POINTED_COLOR;
-		ctx.globalAlpha = 1;
+		ctx.globalAlpha = POINTED_TINT_ALPHA;
 		for (const range of this.pointed) {
 			const block = paragraphAt(state, range.from) ?? state.doc.lineAt(range.from);
 			const top = this.model.top(block.from) * this.scale;
 			const bottom = Math.max(this.model.bottom(block.to) * this.scale, top + MIN_POINTED_HEIGHT);
 			ctx.fillRect(0, top, WIDTH, bottom - top);
+		}
+		ctx.globalAlpha = 1;
+		for (const range of this.pointed) {
+			const top = this.model.y(range.from) * this.scale;
+			const bottom = this.model.y(range.to) * this.scale;
+			const height = Math.max(bottom - top, MIN_POINTED_HEIGHT);
+			ctx.fillRect(0, top, WIDTH, height);
 		}
 	}
 
