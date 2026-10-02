@@ -61,6 +61,11 @@ const PREVIEW_MIN_WIDTH = 220;
 const PREVIEW_MAX_CHARS = 3000;
 /** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
 const SEARCH_ALPHA = 0.9;
+/** Événement DOM, sur l'éditeur, par lequel un autre plugin désigne des passages à repérer dans la minipage. */
+const POINT_EVENT = "burr:point";
+const POINTED_COLOR = "#ff8c00";
+/** Hauteur plancher d'un passage désigné : un paragraphe court ferait à peine un pixel. */
+const MIN_POINTED_HEIGHT = 6;
 /** Bulles d'étiquettes, affichées à gauche de la minipage quand on la survole. */
 const BUBBLE_GAP = 3;
 /** Place laissée à droite des bulles pour leur pointe, en plus de la colonne des repères de sections. */
@@ -288,6 +293,8 @@ class MinimapView {
 	private wheelNotch = 0;
 	/** Mot tapé dans la barre de recherche d'Obsidian (Ctrl+F), et les blocs où il apparaît. */
 	private search: SearchWatcher;
+	/** Passages que désigne un autre plugin (Burr : les deux occurrences d'une répétition survolée). */
+	private pointed: { from: number; to: number }[] = [];
 
 	constructor(
 		private view: EditorView,
@@ -323,8 +330,20 @@ class MinimapView {
 		this.dom.addEventListener("pointerleave", this.onPointerLeave);
 		view.scrollDOM.addEventListener("scroll", this.onScroll);
 		this.search = new SearchWatcher(view, () => this.schedule());
+		view.dom.addEventListener(POINT_EVENT, this.onPoint);
 		this.schedule();
 	}
+
+	/**
+	 * Un autre plugin désigne des passages (`detail.ranges`, positions du document) ou les relâche (liste
+	 * vide) : on les repère dans la minipage tant qu'ils le sont. Burr s'en sert au survol d'une répétition.
+	 */
+	private onPoint = (event: Event) => {
+		const ranges = (event as CustomEvent<{ ranges?: { from: number; to: number }[] }>).detail?.ranges;
+		const length = this.view.state.doc.length;
+		this.pointed = (ranges ?? []).filter((r) => r.from >= 0 && r.to <= length && r.from <= r.to);
+		this.schedule();
+	};
 
 	update(update: ViewUpdate) {
 		if (
@@ -337,6 +356,7 @@ class MinimapView {
 				// Les positions retenues ne désignent plus le même texte.
 				this.flashed = null;
 				this.hover = null;
+				this.pointed = [];
 			}
 			this.schedule();
 		}
@@ -348,6 +368,7 @@ class MinimapView {
 		this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
 		this.stopWatchingCtrl();
 		this.search.destroy();
+		this.view.dom.removeEventListener(POINT_EVENT, this.onPoint);
 		this.reserveSpace(false);
 		this.dom.remove();
 		this.preview.remove();
@@ -434,6 +455,7 @@ class MinimapView {
 		this.paintProblems(ctx, this.bands, ratio);
 		this.paintTags(ctx, this.tags, textColor, ratio);
 		this.paintCorners(ctx, this.corners);
+		this.paintPointed(ctx);
 	}
 
 	/** Réglage « Paragraphes » (sans ligne vide, chaque paragraphe se reconnaît à sa forme) plutôt que « Bloc plein ». */
@@ -768,6 +790,23 @@ class MinimapView {
 		ctx.fillStyle = getComputedStyle(this.canvas).color;
 		ctx.globalAlpha = SEARCH_ALPHA;
 		for (const span of spans) ctx.fillRect(0, span.top, WIDTH, span.bottom - span.top);
+	}
+
+	/**
+	 * Paragraphes des passages désignés par un autre plugin : un cadre plein et marqué sur toute la largeur,
+	 * par-dessus le dessin, pour qu'on voie d'un coup d'œil où se trouvent les deux occurrences.
+	 */
+	private paintPointed(ctx: CanvasRenderingContext2D) {
+		if (this.pointed.length === 0 || !this.scale) return;
+		const { state } = this.view;
+		ctx.fillStyle = getComputedStyle(this.dom).getPropertyValue("--mn-pointed-color").trim() || POINTED_COLOR;
+		ctx.globalAlpha = 1;
+		for (const range of this.pointed) {
+			const block = paragraphAt(state, range.from) ?? state.doc.lineAt(range.from);
+			const top = this.model.top(block.from) * this.scale;
+			const bottom = Math.max(this.model.bottom(block.to) * this.scale, top + MIN_POINTED_HEIGHT);
+			ctx.fillRect(0, top, WIDTH, bottom - top);
+		}
 	}
 
 	/**

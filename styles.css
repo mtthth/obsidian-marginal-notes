@@ -112,6 +112,8 @@
 	/* Repère « page cornée », dessiné sur le canevas : un rouge plus vif et plus saturé que celui de
 	   la palette, pour se repérer d'un coup d'œil. Un extrait CSS peut le changer. */
 	--mn-corner-color: #ff2d2d;
+	/* Passages désignés par un autre plugin (Burr : les deux occurrences d'une répétition survolée). */
+	--mn-pointed-color: #ff8c00;
 	position: absolute;
 	right: 0;
 	z-index: 5;
