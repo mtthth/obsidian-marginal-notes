@@ -1256,6 +1256,9 @@ class MinimapView {
 	private onWheel = (event: WheelEvent) => {
 		if (event.ctrlKey || !this.scale || event.deltaY === 0) return;
 		event.preventDefault();
+		// La page défile : l'extrait du paragraphe survolé ne dit plus rien de ce qu'on a sous les yeux.
+		// Il reparaît au prochain mouvement du pointeur.
+		this.setHover(null);
 		const { view } = this;
 		const unit =
 			event.deltaMode === WheelEvent.DOM_DELTA_LINE
