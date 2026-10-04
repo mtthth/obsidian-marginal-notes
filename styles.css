@@ -106,6 +106,15 @@
 	background-color: color-mix(in srgb, var(--text-accent) 50%, transparent);
 }
 
+/* Les mots proches de celui qu'on a double-cliqué, dans le texte ; dans la minipage, --mn-echo-color. */
+.markdown-source-view.mod-cm6 .mn-word-echo {
+	border-radius: 3px;
+	background-color: color-mix(in srgb, var(--mn-echo-color, var(--text-accent)) 35%, transparent);
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--mn-echo-color, var(--text-accent)) 60%, transparent);
+	-webkit-box-decoration-break: clone;
+	box-decoration-break: clone;
+}
+
 /* Minipage : vue d'ensemble de la note, en haut à droite de l'éditeur, dans la largeur que
    minimap.ts réserve en marge de la zone de défilement (sa barre de défilement reste à gauche). */
 .mn-minimap {
@@ -114,6 +123,8 @@
 	--mn-corner-color: #ff2d2d;
 	/* Passages désignés par un autre plugin (Burr : les deux occurrences d'une répétition survolée). */
 	--mn-pointed-color: #ff8c00;
+	/* Mots proches du mot double-cliqué (voir wordEcho.ts). */
+	--mn-echo-color: #7b6cd9;
 	position: absolute;
 	right: 0;
 	z-index: 5;

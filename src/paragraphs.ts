@@ -249,11 +249,18 @@ export function allSections(state: EditorState): SectionBoundary[] {
 		state,
 		(block) => {
 			const pos = textStart(block);
-			// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
-			for (const rule of pending) if (rule.pos === block.from) rule.pos = pos;
-			pending = [];
 			const heading = headingOf(doc, block);
-			if (heading && (heading.level === 2 || heading.level === 3)) {
+			const titled = heading !== null && (heading.level === 2 || heading.level === 3);
+			// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
+			for (const rule of pending) {
+				if (rule.pos !== block.from) continue;
+				// Un trait juste avant un titre le double : ils se tiendraient à la même hauteur, et le
+				// repère du titre, qui ne tient pas à côté de l'étoile, disparaîtrait.
+				if (titled) sections.splice(sections.indexOf(rule), 1);
+				else rule.pos = pos;
+			}
+			pending = [];
+			if (heading && titled) {
 				const title = shortTitle(doc.sliceString(pos, heading.textEnd));
 				sections.push({ line: block.firstLine, level: heading.level, title, pos });
 			}

@@ -79,7 +79,7 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
  * remettre dans la page sa sélection d'avant — le début de la note, si on vient de l'ouvrir — et la
  * vue y saute dès que le clavier apparaît. Il faut donc la lui transmettre avec la transaction.
  */
-function unreadDomSelection(view: EditorView): EditorSelection | undefined {
+export function unreadDomSelection(view: EditorView): EditorSelection | undefined {
 	const dom = view.dom.ownerDocument.getSelection();
 	if (!dom?.anchorNode || !dom.focusNode) return undefined;
 	if (!view.contentDOM.contains(dom.anchorNode) || !view.contentDOM.contains(dom.focusNode)) return undefined;

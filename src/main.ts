@@ -8,6 +8,7 @@ import { createMinimap } from "./minimap";
 import { flashField } from "./flash";
 import { createCenterFlash } from "./centerFlash";
 import { searchHighlighter } from "./search";
+import { wordEcho } from "./wordEcho";
 import { markerText, paragraphAt } from "./paragraphs";
 import { openTagMenu } from "./menu";
 import { centerOnClick, jumpToTag } from "./navigation";
@@ -41,6 +42,7 @@ export default class MarginalNotesPlugin extends Plugin {
 			centerOnClick(this),
 			createCenterFlash(),
 			searchHighlighter,
+			wordEcho,
 		]);
 		this.registerMarkdownPostProcessor(createReadingPostProcessor(this));
 		this.addSettingTab(new MarginalNotesSettingTab(this.app, this));

@@ -19,6 +19,7 @@ import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
 import { problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
 import { SearchWatcher } from "./search";
+import { echoField, echoHits } from "./wordEcho";
 import { toggleCorner } from "./tagEdit";
 import type { TagDecorations } from "./gutter";
 import type MarginalNotesPlugin from "./main";
@@ -59,6 +60,14 @@ const HOVER_COLOR_MIX = 0.35;
 const PREVIEW_INSET = 12;
 const PREVIEW_MIN_WIDTH = 220;
 const PREVIEW_MAX_CHARS = 3000;
+/** Le cadre a toujours la hauteur de ce nombre de lignes (moins si l'éditeur est trop bas) : un paragraphe plus long est coupé par « … ». */
+const PREVIEW_LINES = 10;
+/** Déplacement du pointeur, après un clic dans la minipage, qui fait reparaître l'aperçu. */
+const PREVIEW_REVIVE_DISTANCE = 6;
+/** Couleur de repli des mots repérés par un double clic, si le thème ne définit pas --mn-echo-color (voir styles.css). */
+const ECHO_COLOR = "#7b6cd9";
+/** Hauteur plancher d'un mot repéré : sa rangée entière ferait à peine un pixel dans une longue note. */
+const MIN_ECHO_HEIGHT = 2;
 /** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
 const SEARCH_ALPHA = 0.9;
 /** Événement DOM, sur l'éditeur, par lequel un autre plugin désigne des passages à repérer dans la minipage. */
@@ -290,6 +299,8 @@ class MinimapView {
 	private flashed: { from: number; to: number } | null = null;
 	private flashTimer = 0;
 	private dragging = false;
+	/** Où le pointeur a cliqué : tant qu'il n'en est pas écarté, l'aperçu cliqué ne reparaît pas. */
+	private reviveAt: { x: number; y: number } | null = null;
 	/** Molette : reliquat pas encore converti en cran, et taille mesurée d'un cran. */
 	private wheelDelta = 0;
 	private wheelNotch = 0;
@@ -352,6 +363,7 @@ class MinimapView {
 			update.docChanged ||
 			update.geometryChanged ||
 			update.heightChanged ||
+			update.startState.field(echoField) !== update.state.field(echoField) ||
 			update.transactions.some((tr) => tr.effects.some((e) => e.is(refreshMarkersEffect)))
 		) {
 			if (update.docChanged) {
@@ -455,6 +467,7 @@ class MinimapView {
 		this.paintMatches(ctx);
 		this.paintBands(ctx, this.bands, textColor, ratio);
 		this.paintProblems(ctx, this.bands, ratio);
+		this.paintEchoes(ctx);
 		this.paintTags(ctx, this.tags, textColor, ratio);
 		this.paintCorners(ctx, this.corners);
 		this.paintPointed(ctx);
@@ -740,6 +753,30 @@ class MinimapView {
 				const right = Math.min(barWidth, Math.max(Math.min(mark.end * barWidth, rowRight), left + PROBLEM_MIN_WIDTH));
 				ctx.fillRect(PADDING_X + left, top, right - left, bottom - top);
 			}
+		}
+	}
+
+	/**
+	 * Mots proches de celui qu'on a double-cliqué (voir wordEcho.ts), là où ils se trouvent dans leur ligne,
+	 * par-dessus les lignes et les zones à problème. Jamais sous une taille minimale : un mot reste visible
+	 * dans une note si longue que sa ligne n'y fait plus un pixel.
+	 */
+	private paintEchoes(ctx: CanvasRenderingContext2D) {
+		const hits = echoHits(this.view.state);
+		if (hits.length === 0 || !this.scale) return;
+		const barWidth = WIDTH - 2 * PADDING_X;
+		const perRow = this.charsPerRow;
+		ctx.fillStyle = getComputedStyle(this.dom).getPropertyValue("--mn-echo-color").trim() || ECHO_COLOR;
+		ctx.globalAlpha = 1;
+		for (const hit of hits) {
+			const item = this.model.itemAt(hit.from);
+			if (!item || item.blank || hit.from < item.from) continue;
+			const offset = hit.from - item.from;
+			const row = Math.min(item.rows - 1, Math.floor(offset / perRow));
+			const rowHeight = (item.height * this.scale) / item.rows;
+			const left = Math.min(Math.max(0, offset - row * perRow) / perRow * barWidth, barWidth - PROBLEM_MIN_WIDTH);
+			const width = Math.min(barWidth - left, Math.max(((hit.to - hit.from) / perRow) * barWidth, PROBLEM_MIN_WIDTH));
+			ctx.fillRect(PADDING_X + left, item.top * this.scale + row * rowHeight, width, Math.max(rowHeight, MIN_ECHO_HEIGHT));
 		}
 	}
 
@@ -1086,6 +1123,9 @@ class MinimapView {
 		if (event.button !== 0 || !this.scale) return;
 		event.preventDefault();
 		event.stopPropagation();
+		// On va là où l'extrait pointait : il n'a plus rien à dire, et ne reparaît qu'au prochain mouvement franc.
+		this.setHover(null);
+		this.reviveAt = { x: event.clientX, y: event.clientY };
 		// Sur mobile, empêcher l'appui retire aussi au toucher son effet ordinaire : ôter le focus à
 		// l'éditeur. Resté en place, il ferait surgir le clavier dès que le saut ci-dessous remue la
 		// sélection de CM6. On le retire donc soi-même, avant tout défilement.
@@ -1142,11 +1182,11 @@ class MinimapView {
 
 	private onPointerUp = (event: PointerEvent) => {
 		this.dragging = false;
-		if (event.type === "pointerup") this.updateHover(event);
 	};
 
 	private onPointerLeave = () => {
 		this.resetWheel();
+		this.reviveAt = null;
 		this.setHover(null);
 		this.stopWatchingCtrl();
 		this.setBubbleView(1);
@@ -1184,6 +1224,10 @@ class MinimapView {
 	 */
 	private updateHover(event: PointerEvent) {
 		if (event.pointerType === "touch" || !this.scale) return;
+		if (this.reviveAt) {
+			if (Math.hypot(event.clientX - this.reviveAt.x, event.clientY - this.reviveAt.y) < PREVIEW_REVIVE_DISTANCE) return;
+			this.reviveAt = null;
+		}
 		const marker =
 			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
 		const index = marker
@@ -1244,8 +1288,10 @@ class MinimapView {
 		previewText.style.setProperty("-webkit-line-clamp", "1");
 		const chrome = preview.offsetHeight - previewText.offsetHeight;
 		const lineHeight = parseFloat(getComputedStyle(previewText).lineHeight) || view.defaultLineHeight;
-		const lines = Math.max(1, Math.floor((maxHeight - chrome) / lineHeight));
+		const lines = Math.min(PREVIEW_LINES, Math.max(1, Math.floor((maxHeight - chrome) / lineHeight)));
 		previewText.style.setProperty("-webkit-line-clamp", String(lines));
+		// Toujours la même hauteur, quelle que soit la longueur du paragraphe.
+		previewText.style.height = `${lines * lineHeight}px`;
 	}
 
 	// La minipage est hors de la zone de défilement de l'éditeur : la molette n'y agit pas d'elle-même.
