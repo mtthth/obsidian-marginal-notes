@@ -21,7 +21,7 @@ export interface MarginalNotesSettings {
 	minimapStyle: MinimapStyle;
 	/** Minipage en « paragraphs » : la première ligne de chaque paragraphe est en retrait. */
 	minimapIndent: boolean;
-	/** Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. */
+	/** Le premier clic dans un paragraphe l'amène en haut de la page et le fait clignoter. */
 	centerOnClick: boolean;
 	/** Les balisages qui signalent un endroit à reprendre, et la couleur dont la minipage les dessine. */
 	problemZones: ProblemZone[];
@@ -129,7 +129,7 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName("Clic dans le texte").setHeading();
 		new Setting(containerEl)
 			.setName("Centrer le paragraphe au clic")
-			.setDesc("Le premier clic dans un paragraphe le centre à l'écran et le fait clignoter. Désactivé, un clic ne fait que poser le curseur, sans déplacer la vue.")
+			.setDesc("Le premier clic dans un paragraphe l'amène en haut de la page et le fait clignoter. Désactivé, un clic ne fait que poser le curseur, sans déplacer la vue.")
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.centerOnClick).onChange(async (value) => {
 					this.plugin.settings.centerOnClick = value;

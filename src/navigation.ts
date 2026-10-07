@@ -11,8 +11,19 @@ import type MarginalNotesPlugin from "./main";
 /** Déplacement du pointeur toléré entre l'appui et le relâchement pour que ça reste un clic. */
 const CLICK_SLOP = 4;
 
+/** Marge laissée au-dessus d'un paragraphe amené en haut de la page. */
+const TOP_MARGIN = 16;
+
 /**
- * Paragraphe sur lequel la vue a été centrée en dernier, dans chaque éditeur. Seul un centrage sur
+ * Défilement qui amène `pos` en haut de l'éditeur, et non au milieu : le paragraphe visé se lit alors
+ * d'un trait, avec la suite de la page sous les yeux.
+ */
+export function scrollToTop(pos: number) {
+	return EditorView.scrollIntoView(pos, { y: "start", yMargin: TOP_MARGIN });
+}
+
+/**
+ * Paragraphe sur lequel la vue a été positionnée en dernier, dans chaque éditeur. Seul un centrage sur
  * un autre paragraphe l'efface : surtout pas un défilement, pour qu'on puisse partir voir ailleurs
  * puis revenir travailler dans celui-là sans que la vue saute quand on y repose le curseur.
  */
@@ -65,7 +76,7 @@ export function jumpToTag(view: EditorView, direction: 1 | -1) {
 	const anchor = target.block.markerFrom + target.matchLength;
 	view.dispatch({
 		selection: { anchor },
-		effects: EditorView.scrollIntoView(anchor, { y: "center" }),
+		effects: scrollToTop(anchor),
 	});
 	view.focus();
 	rememberCentred(view, target.block.from);
@@ -90,7 +101,7 @@ export function unreadDomSelection(view: EditorView): EditorSelection | undefine
 }
 
 /**
- * Extension : le premier clic dans un paragraphe le centre et le fait clignoter, comme un clic dans
+ * Extension : le premier clic dans un paragraphe l'amène en haut et le fait clignoter, comme un clic dans
  * la minipage ; les clics suivants, ceux de quelqu'un qui y travaille, ne bougent plus rien. Sauf
  * quand on vient d'y arriver en faisant défiler soi-même : le clic adopte alors le paragraphe sans
  * rien déplacer. Le curseur, lui, reste toujours là où on l'a posé. CM6 pose ces écouteurs sur
@@ -113,7 +124,7 @@ export function centerOnClick(plugin: MarginalNotesPlugin) {
 			// Déjà celui du clic précédent : on y travaille, rien ne doit remuer.
 			if (centred.get(view) === block.from) return;
 			// Arrivé là en faisant défiler : le paragraphe devient celui où l'on travaille, mais sans
-			// que la vue bouge. Un clic ailleurs, ensuite, centrera comme d'habitude.
+			// que la vue bouge. Un clic ailleurs, ensuite, le remontera comme d'habitude.
 			const arrivedByScroll = scrolledTo.delete(view);
 			centred.set(view, block.from);
 			if (arrivedByScroll) return;
@@ -121,7 +132,7 @@ export function centerOnClick(plugin: MarginalNotesPlugin) {
 			view.dispatch({
 				selection,
 				userEvent: selection && "select.pointer",
-				effects: EditorView.scrollIntoView(textStart(block), { y: "center" }),
+				effects: scrollToTop(textStart(block)),
 			});
 			flashParagraph(view, block.from, block.to);
 		},

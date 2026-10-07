@@ -136,16 +136,18 @@
 /* La couleur du canevas, qui n'affiche aucun texte, est celle que minimap.ts donne au fond des blocs
    où apparaît le mot cherché (Ctrl+F) : l'accent, comme le cadre de l'occurrence dans l'éditeur. */
 .mn-minimap canvas {
+	position: relative;
 	display: block;
 	color: var(--text-accent);
 }
 
+/* Sous le canevas (transparent) : l'épaisse bordure ne cache ni les lignes ni les zones à problème. */
 .mn-minimap-viewport {
 	position: absolute;
-	left: 2px;
-	right: 2px;
+	left: 0;
+	right: 0;
 	box-sizing: border-box;
-	border: 2px solid var(--text-muted);
+	border: 5px solid var(--text-muted);
 	border-radius: 3px;
 	pointer-events: none;
 }
@@ -340,7 +342,7 @@
 	visibility: hidden;
 }
 
-/* Aperçu du texte du paragraphe que la minipage survole : un cadre sur le tiers gauche de l'éditeur, dont
+/* Aperçu du texte du paragraphe que la minipage survole : un cadre sur les deux tiers gauches de l'éditeur, dont
    minimap.ts pose la place et la largeur. Sous la minipage (z-index 5), pour que ses bulles, quand l'une
    d'elles est décalée loin vers la gauche, restent lisibles par-dessus. Le nombre de lignes du texte,
    qu'il coupe par des points de suspension, est aussi posé par minimap.ts. */

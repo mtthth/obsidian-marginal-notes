@@ -14,7 +14,7 @@ import {
 	type SectionBoundary,
 } from "./paragraphs";
 import { FLASH_DURATION_MS, flashParagraph } from "./flash";
-import { rememberCentred, rememberScrolled } from "./navigation";
+import { rememberCentred, rememberScrolled, scrollToTop } from "./navigation";
 import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
 import { problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
@@ -54,14 +54,16 @@ const FRONTMATTER_ALPHA = 0.25;
 const HOVER_ALPHA_BOOST = 0.45;
 const HOVER_COLOR_MIX = 0.35;
 /**
- * Aperçu du texte du paragraphe survolé : un cadre sur le tiers gauche de l'éditeur, à cette distance de
- * ses bords, et pas plus étroit que ce minimum. Seul le début du texte y est mis : le reste ne se verrait pas.
+ * Aperçu du texte du paragraphe survolé : un cadre sur les deux tiers gauches de l'éditeur, à cette distance
+ * de ses bords, et pas plus étroit que ce minimum (sans jamais recouvrir la minipage). Seul le début du
+ * texte y est mis : le reste ne se verrait pas.
  */
 const PREVIEW_INSET = 12;
-const PREVIEW_MIN_WIDTH = 220;
+const PREVIEW_MIN_WIDTH = 440;
+const PREVIEW_WIDTH_SHARE = 2 / 3;
 const PREVIEW_MAX_CHARS = 3000;
 /** Le cadre a toujours la hauteur de ce nombre de lignes (moins si l'éditeur est trop bas) : un paragraphe plus long est coupé par « … ». */
-const PREVIEW_LINES = 10;
+const PREVIEW_LINES = 5;
 /** Déplacement du pointeur, après un clic dans la minipage, qui fait reparaître l'aperçu. */
 const PREVIEW_REVIVE_DISTANCE = 6;
 /** Couleur de repli des mots repérés par un double clic, si le thème ne définit pas --mn-echo-color (voir styles.css). */
@@ -317,11 +319,10 @@ class MinimapView {
 		this.dom = document.createElement("div");
 		this.dom.className = "mn-minimap";
 		this.dom.style.width = `${WIDTH}px`;
+		// Le cadre de la zone visible passe sous le canevas (transparent), pour ne cacher ni les lignes ni les zones.
+		this.viewportEl = this.dom.createDiv({ cls: "mn-minimap-viewport" });
 		this.canvas = this.dom.appendChild(document.createElement("canvas"));
-		// Avant le cadre de la zone visible, pour que sa bordure reste lisible par-dessus le flash.
 		this.flashEl = this.dom.createDiv({ cls: "mn-minimap-flash" });
-		this.viewportEl = this.dom.appendChild(document.createElement("div"));
-		this.viewportEl.className = "mn-minimap-viewport";
 		// Dans la minipage (et non à côté) pour que survoler une bulle ou un repère de section compte
 		// comme survoler la minipage.
 		this.bubbleLayer = this.dom.createDiv({ cls: "mn-minimap-bubbles" });
@@ -1266,7 +1267,7 @@ class MinimapView {
 	}
 
 	/**
-	 * Cadre sur le tiers gauche de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro de la ligne
+	 * Cadre sur les deux tiers gauches de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro de la ligne
 	 * où commence le paragraphe survolé (celui de la marge de l'éditeur, pour le retrouver) puis le début de
 	 * son texte. Le texte se coupe à la dernière ligne entière qui tient, points de suspension compris : le
 	 * nombre de lignes se déduit de la hauteur du cadre, que seul le navigateur connaît.
@@ -1282,7 +1283,8 @@ class MinimapView {
 		const maxHeight = Math.max(0, view.dom.clientHeight - 2 * PREVIEW_INSET);
 		preview.style.left = `${PREVIEW_INSET}px`;
 		preview.style.top = `${PREVIEW_INSET}px`;
-		preview.style.width = `${Math.max(PREVIEW_MIN_WIDTH, Math.round(view.dom.clientWidth / 3)) - PREVIEW_INSET}px`;
+		const wanted = Math.max(PREVIEW_MIN_WIDTH, Math.round(view.dom.clientWidth * PREVIEW_WIDTH_SHARE)) - PREVIEW_INSET;
+		preview.style.width = `${Math.max(0, Math.min(wanted, view.dom.clientWidth - WIDTH - 2 * PREVIEW_INSET))}px`;
 		preview.show();
 		// Une ligne d'abord, pour mesurer ce que le cadre ajoute au texte (marges et bordure).
 		previewText.style.setProperty("-webkit-line-clamp", "1");
@@ -1323,7 +1325,7 @@ class MinimapView {
 		// Sans animation : un cran reçu pendant qu'elle court partirait d'une position intermédiaire.
 		// Le navigateur arrête le défilement aux bords de la note.
 		view.scrollDOM.scrollTop += steps * view.scrollDOM.clientHeight;
-		// C'est l'utilisateur qui a mené la vue là : un clic dans le texte n'a pas à la recentrer.
+		// C'est l'utilisateur qui a mené la vue là : un clic dans le texte n'a pas à la remonter.
 		rememberScrolled(view);
 	};
 
@@ -1393,7 +1395,7 @@ class MinimapView {
 	}
 
 	/**
-	 * Centre l'éditeur sur l'endroit de la note correspondant à `clientY`. Au clic (et non pendant un
+	 * Amène en haut de l'éditeur l'endroit de la note correspondant à `clientY`. Au clic (et non pendant un
 	 * glissement, qui clignoterait à chaque mouvement), y place aussi le curseur et fait clignoter l'arrivée.
 	 */
 	private jumpTo(clientY: number, click: boolean) {
@@ -1403,7 +1405,7 @@ class MinimapView {
 			this.scrollToPos(pos, false);
 			return;
 		}
-		// Au clic, on centre le paragraphe visé — celui-là même qui clignote — et non le point exact.
+		// Au clic, on amène en haut le paragraphe visé — celui-là même qui clignote — et non le point exact.
 		const paragraph = paragraphAt(view.state, pos);
 		this.scrollToPos(paragraph ? textStart(paragraph) : pos, true);
 		if (paragraph) this.flash(paragraph);
@@ -1416,7 +1418,7 @@ class MinimapView {
 		const focusEditor = moveCursor && !Platform.isMobile;
 		view.dispatch({
 			selection: focusEditor ? { anchor: pos } : undefined,
-			effects: EditorView.scrollIntoView(pos, { y: "center" }),
+			effects: scrollToTop(pos),
 		});
 		if (focusEditor) view.focus();
 	}
