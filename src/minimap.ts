@@ -18,7 +18,7 @@ import { FLASH_DURATION_MS, flashParagraph } from "./flash";
 import { rememberCentred, rememberScrolled, scrollToTop } from "./navigation";
 import { placeBubbles, placeColumns } from "./bubbleLayout";
 import { StackModel, type ModelItem } from "./minimapModel";
-import { problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
+import { isTextParagraph, problemSpans, problemZonesKey, type ProblemSpan } from "./problemZones";
 import { SearchWatcher } from "./search";
 import { echoField, echoHits } from "./wordEcho";
 import { toggleCorner } from "./tagEdit";
@@ -1264,9 +1264,8 @@ class MinimapView {
 		if (key === this.previewKey) return this.layoutPreview();
 		this.previewKey = key;
 		const render = ++this.previewRender;
-		// Le rang du paragraphe parmi ceux de la note ; rien pour ce qui n'en est pas un (frontmatter, code…).
-		const rank = allParagraphs(view.state).findIndex((block) => block.from <= hover.from && hover.from <= block.to);
-		const line = `${rank >= 0 ? `Paragraphe ${rank + 1} · ` : ""}Ligne ${view.state.doc.lineAt(hover.from).number}`;
+		const rank = this.paragraphRank(hover);
+		const line = `${rank ? `Paragraphe ${rank} · ` : ""}Ligne ${view.state.doc.lineAt(hover.from).number}`;
 		const rendered = createDiv({ cls: "markdown-rendered" });
 		const path = this.plugin.app.workspace.getActiveFile()?.path ?? "";
 		void MarkdownRenderer.render(this.plugin.app, text, rendered, path, this.previewOwner).then(() => {
@@ -1275,6 +1274,23 @@ class MinimapView {
 			this.previewText.replaceChildren(rendered);
 			this.layoutPreview();
 		});
+	}
+
+	/**
+	 * Rang, à partir de 1, du premier paragraphe de texte de `range` parmi ceux de la note, ou 0 s'il n'y en a
+	 * pas : un titre, des zones à reprendre seules, le frontmatter ou un bloc de code ne comptent pas. Le
+	 * survol peut commencer à un titre collé à son paragraphe : c'est ce paragraphe qu'il désigne.
+	 */
+	private paragraphRank(range: { from: number; to: number }): number {
+		const { state } = this.view;
+		let rank = 0;
+		for (const block of allParagraphs(state)) {
+			if (block.from > range.to) break;
+			if (!isTextParagraph(state.doc, block, this.plugin.settings.problemZones)) continue;
+			rank++;
+			if (block.to >= range.from) return rank;
+		}
+		return 0;
 	}
 
 	/**

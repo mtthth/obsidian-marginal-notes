@@ -1,7 +1,7 @@
 // Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
 
 import type { Text } from "@codemirror/state";
-import { blockCloser, frontmatterLastLine } from "./paragraphs";
+import { blockCloser, frontmatterLastLine, isHeadingBlock, lineTextStart, type ParagraphBlock } from "./paragraphs";
 
 /**
  * Un balisage qui signale un endroit à reprendre : le texte entre `open` et `close`, sur une seule ligne,
@@ -173,4 +173,27 @@ export function problemSpans(doc: Text, zones: ProblemZone[]): ProblemSpan[] {
 		}
 	}
 	return spans;
+}
+
+/**
+ * Vrai si le bloc est un paragraphe de texte : ni un titre, ni des zones à reprendre seules (une ligne
+ * « `à compléter` » n'est pas du texte), ni un commentaire %%…%% : il faut qu'il reste une lettre ou un
+ * chiffre une fois ces zones ôtées.
+ */
+export function isTextParagraph(doc: Text, block: ParagraphBlock, zones: ProblemZone[]): boolean {
+	if (isHeadingBlock(doc, block)) return false;
+	const last = doc.lineAt(block.to).number;
+	for (let n = block.firstLine.number; n <= last; n++) {
+		const line = doc.line(n);
+		const text = n === block.firstLine.number ? line.text.slice(lineTextStart(line) - line.from) : line.text;
+		let rest = "";
+		let at = 0;
+		for (const span of problemSpansOfLine(text, zones)) {
+			rest += text.slice(at, span.from);
+			at = span.to;
+		}
+		rest += text.slice(at);
+		if (/[\p{L}\p{N}]/u.test(rest.replace(/%%.*?%%/g, ""))) return true;
+	}
+	return false;
 }

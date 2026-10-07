@@ -131,6 +131,13 @@ function forEachBlock(
 	flush();
 }
 
+/** Vrai si le bloc est un titre : `#`… sur sa ligne, ou souligné par `===`/`---` (setext). */
+export function isHeadingBlock(doc: Text, block: ParagraphBlock): boolean {
+	const text = block.firstLine.text;
+	if (HEADING_RE.test(text)) return true;
+	return block.to > block.firstLine.to && isPlainParagraph(text) && SETEXT_RE.test(doc.lineAt(block.to).text);
+}
+
 /** Le bloc étiquetable contenant `pos`, ou null. */
 export function paragraphAt(state: EditorState, pos: number): ParagraphBlock | null {
 	let found: ParagraphBlock | null = null;
