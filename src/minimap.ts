@@ -5,6 +5,7 @@ import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { hasLabel, refreshMarkersEffect } from "./model";
 import {
+	allParagraphs,
 	allSections,
 	frontmatterLastLine,
 	paragraphAt,
@@ -1246,7 +1247,7 @@ class MinimapView {
 	}
 
 	/**
-	 * Cadre sur les deux tiers gauches de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro de la ligne
+	 * Cadre sur les deux tiers gauches de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro du paragraphe, puis celui de la ligne
 	 * où commence le paragraphe survolé (celui de la marge de l'éditeur, pour le retrouver) puis le début de
 	 * son texte, rendu comme le rend Obsidian. Le rendu est asynchrone : le cadre garde son contenu précédent
 	 * jusqu'à ce que le nouveau soit prêt. Sa hauteur est celle d'un nombre fixe de lignes (voir layoutPreview).
@@ -1263,7 +1264,9 @@ class MinimapView {
 		if (key === this.previewKey) return this.layoutPreview();
 		this.previewKey = key;
 		const render = ++this.previewRender;
-		const line = `Ligne ${view.state.doc.lineAt(hover.from).number}`;
+		// Le rang du paragraphe parmi ceux de la note ; rien pour ce qui n'en est pas un (frontmatter, code…).
+		const rank = allParagraphs(view.state).findIndex((block) => block.from <= hover.from && hover.from <= block.to);
+		const line = `${rank >= 0 ? `Paragraphe ${rank + 1} · ` : ""}Ligne ${view.state.doc.lineAt(hover.from).number}`;
 		const rendered = createDiv({ cls: "markdown-rendered" });
 		const path = this.plugin.app.workspace.getActiveFile()?.path ?? "";
 		void MarkdownRenderer.render(this.plugin.app, text, rendered, path, this.previewOwner).then(() => {
