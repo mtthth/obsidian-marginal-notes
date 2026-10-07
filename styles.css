@@ -344,8 +344,7 @@
 
 /* Aperçu du texte du paragraphe que la minipage survole : un cadre sur les deux tiers gauches de l'éditeur, dont
    minimap.ts pose la place et la largeur. Sous la minipage (z-index 5), pour que ses bulles, quand l'une
-   d'elles est décalée loin vers la gauche, restent lisibles par-dessus. Le nombre de lignes du texte,
-   qu'il coupe par des points de suspension, est aussi posé par minimap.ts. */
+   d'elles est décalée loin vers la gauche, restent lisibles par-dessus. Sa hauteur, en nombre de lignes, est aussi posée par minimap.ts. */
 .mn-preview {
 	position: absolute;
 	z-index: 4;
@@ -367,15 +366,26 @@
 	line-height: 1.2;
 }
 
+/* Texte rendu par Obsidian, sur une hauteur fixe (minimap.ts) : ce qui dépasse s'estompe au lieu d'être coupé net. */
 .mn-preview-text {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
 	overflow: hidden;
 	font-family: var(--font-text, inherit);
 	font-size: var(--font-text-size, 16px);
 	line-height: 1.5;
-	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+}
+
+.mn-preview-text.mn-cut {
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 2.5em), transparent);
+}
+
+.mn-preview-text .markdown-rendered > :first-child {
+	margin-top: 0;
+}
+
+.mn-preview-text img {
+	max-width: 100%;
 }
 
 .mn-menu-swatch {

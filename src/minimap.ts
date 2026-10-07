@@ -1,6 +1,6 @@
 // Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
 
-import { Platform } from "obsidian";
+import { Component, MarkdownRenderer, Platform } from "obsidian";
 import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { hasLabel, refreshMarkersEffect } from "./model";
@@ -287,6 +287,11 @@ class MinimapView {
 	private preview: HTMLElement;
 	private previewLine: HTMLElement;
 	private previewText: HTMLElement;
+	/** Ce que l'aperçu affiche (ou rend en ce moment), et le rendu en cours : un rendu périmé est jeté. */
+	private previewKey = "";
+	private previewRender = 0;
+	/** Porte les composants du rendu markdown (aperçus de liens, images…) : déchargé avec la minipage. */
+	private previewOwner = new Component();
 	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
 	private sectionDoc: Text | null = null;
 	private sections: SectionBoundary[] = [];
@@ -331,6 +336,7 @@ class MinimapView {
 		this.previewLine = this.preview.createDiv({ cls: "mn-preview-line" });
 		this.previewText = this.preview.createDiv({ cls: "mn-preview-text" });
 		this.preview.hide();
+		this.previewOwner.load();
 
 		this.dom.addEventListener("pointerdown", this.onPointerDown);
 		this.dom.addEventListener("pointermove", this.onPointerMove);
@@ -385,6 +391,7 @@ class MinimapView {
 		this.reserveSpace(false);
 		this.dom.remove();
 		this.preview.remove();
+		this.previewOwner.unload();
 	}
 
 	/** Réserve la largeur de la minipage à droite de la zone de défilement, pour ne pas recouvrir le texte. */
@@ -1241,31 +1248,52 @@ class MinimapView {
 	/**
 	 * Cadre sur les deux tiers gauches de l'éditeur, aussi haut que l'éditeur le permet, avec le numéro de la ligne
 	 * où commence le paragraphe survolé (celui de la marge de l'éditeur, pour le retrouver) puis le début de
-	 * son texte. Le texte se coupe à la dernière ligne entière qui tient, points de suspension compris : le
-	 * nombre de lignes se déduit de la hauteur du cadre, que seul le navigateur connaît.
+	 * son texte, rendu comme le rend Obsidian. Le rendu est asynchrone : le cadre garde son contenu précédent
+	 * jusqu'à ce que le nouveau soit prêt. Sa hauteur est celle d'un nombre fixe de lignes (voir layoutPreview).
 	 */
 	private updatePreview() {
-		const { view, preview, previewLine, previewText, hover } = this;
-		if (!hover) return preview.hide();
-		const line = `Ligne ${view.state.doc.lineAt(hover.from).number}`;
-		if (previewLine.textContent !== line) previewLine.textContent = line;
+		const { view, preview, hover } = this;
+		if (!hover) {
+			this.previewRender++;
+			this.previewKey = "";
+			return preview.hide();
+		}
 		const text = textWithoutMarker(view.state.doc, hover.from, Math.min(hover.to, hover.from + PREVIEW_MAX_CHARS));
-		if (previewText.textContent !== text) previewText.textContent = text;
+		const key = `${hover.from}:${text}`;
+		if (key === this.previewKey) return this.layoutPreview();
+		this.previewKey = key;
+		const render = ++this.previewRender;
+		const line = `Ligne ${view.state.doc.lineAt(hover.from).number}`;
+		const rendered = createDiv({ cls: "markdown-rendered" });
+		const path = this.plugin.app.workspace.getActiveFile()?.path ?? "";
+		void MarkdownRenderer.render(this.plugin.app, text, rendered, path, this.previewOwner).then(() => {
+			if (render !== this.previewRender) return;
+			this.previewLine.textContent = line;
+			this.previewText.replaceChildren(rendered);
+			this.layoutPreview();
+		});
+	}
 
+	/**
+	 * Place le cadre et lui donne toujours la même hauteur — celle de PREVIEW_LINES lignes de texte, moins si
+	 * l'éditeur est trop bas —, quelle que soit la longueur du paragraphe. Ce qui dépasse est coupé, et
+	 * s'estompe (voir styles.css). Le navigateur seul connaît la hauteur d'une ligne et celle du cadre.
+	 */
+	private layoutPreview() {
+		const { view, preview, previewText } = this;
 		const maxHeight = Math.max(0, view.dom.clientHeight - 2 * PREVIEW_INSET);
 		preview.style.left = `${PREVIEW_INSET}px`;
 		preview.style.top = `${PREVIEW_INSET}px`;
 		const wanted = Math.max(PREVIEW_MIN_WIDTH, Math.round(view.dom.clientWidth * PREVIEW_WIDTH_SHARE)) - PREVIEW_INSET;
 		preview.style.width = `${Math.max(0, Math.min(wanted, view.dom.clientWidth - WIDTH - 2 * PREVIEW_INSET))}px`;
 		preview.show();
-		// Une ligne d'abord, pour mesurer ce que le cadre ajoute au texte (marges et bordure).
-		previewText.style.setProperty("-webkit-line-clamp", "1");
-		const chrome = preview.offsetHeight - previewText.offsetHeight;
+		// Texte sans hauteur d'abord, pour mesurer ce que le cadre ajoute autour (marges et bordure).
+		previewText.style.height = "0px";
+		const chrome = preview.offsetHeight;
 		const lineHeight = parseFloat(getComputedStyle(previewText).lineHeight) || view.defaultLineHeight;
 		const lines = Math.min(PREVIEW_LINES, Math.max(1, Math.floor((maxHeight - chrome) / lineHeight)));
-		previewText.style.setProperty("-webkit-line-clamp", String(lines));
-		// Toujours la même hauteur, quelle que soit la longueur du paragraphe.
 		previewText.style.height = `${lines * lineHeight}px`;
+		previewText.toggleClass("mn-cut", previewText.scrollHeight > previewText.clientHeight + 1);
 	}
 
 	// La minipage est hors de la zone de défilement de l'éditeur : la molette n'y agit pas d'elle-même.
