@@ -63,15 +63,13 @@ const PREVIEW_MIN_WIDTH = 440;
 const PREVIEW_WIDTH_SHARE = 2 / 3;
 const PREVIEW_MAX_CHARS = 3000;
 /** Le cadre a toujours la hauteur de ce nombre de lignes (moins si l'éditeur est trop bas) : un paragraphe plus long est coupé par « … ». */
-const PREVIEW_LINES = 5;
+const PREVIEW_LINES = 20;
 /** Déplacement du pointeur, après un clic dans la minipage, qui fait reparaître l'aperçu. */
 const PREVIEW_REVIVE_DISTANCE = 6;
 /** Couleur de repli des mots repérés par un double clic, si le thème ne définit pas --mn-echo-color (voir styles.css). */
 const ECHO_COLOR = "#7b6cd9";
 /** Hauteur plancher d'un mot repéré : sa rangée entière ferait à peine un pixel dans une longue note. */
 const MIN_ECHO_HEIGHT = 2;
-/** Opacité du fond qui met en valeur les blocs où apparaît le mot cherché (Ctrl+F). */
-const SEARCH_ALPHA = 0.9;
 /** Événement DOM, sur l'éditeur, par lequel un autre plugin désigne des passages à repérer dans la minipage. */
 const POINT_EVENT = "burr:point";
 const POINTED_COLOR = "#ff8c00";
@@ -465,10 +463,11 @@ class MinimapView {
 		ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 		ctx.clearRect(0, 0, WIDTH, this.contentHeight);
 		const textColor = getComputedStyle(this.view.contentDOM).color;
-		this.paintMatches(ctx);
 		this.paintBands(ctx, this.bands, textColor, ratio);
 		this.paintProblems(ctx, this.bands, ratio);
-		this.paintEchoes(ctx);
+		// Le canevas n'affiche aucun texte : styles.css lui donne pour couleur celle de la recherche.
+		this.paintWords(ctx, this.search.hits(this.view.state), getComputedStyle(this.canvas).color);
+		this.paintWords(ctx, echoHits(this.view.state), getComputedStyle(this.dom).getPropertyValue("--mn-echo-color").trim() || ECHO_COLOR);
 		this.paintTags(ctx, this.tags, textColor, ratio);
 		this.paintCorners(ctx, this.corners);
 		this.paintPointed(ctx);
@@ -758,16 +757,15 @@ class MinimapView {
 	}
 
 	/**
-	 * Mots proches de celui qu'on a double-cliqué (voir wordEcho.ts), là où ils se trouvent dans leur ligne,
-	 * par-dessus les lignes et les zones à problème. Jamais sous une taille minimale : un mot reste visible
-	 * dans une note si longue que sa ligne n'y fait plus un pixel.
+	 * Mots de `hits` (ceux qu'on a double-cliqués, voir wordEcho.ts, ou le mot cherché, voir search.ts), là
+	 * où ils se trouvent dans leur ligne, par-dessus les lignes et les zones à problème. Jamais sous une
+	 * taille minimale : un mot reste visible dans une note si longue que sa ligne n'y fait plus un pixel.
 	 */
-	private paintEchoes(ctx: CanvasRenderingContext2D) {
-		const hits = echoHits(this.view.state);
+	private paintWords(ctx: CanvasRenderingContext2D, hits: { from: number; to: number }[], color: string) {
 		if (hits.length === 0 || !this.scale) return;
 		const barWidth = WIDTH - 2 * PADDING_X;
 		const perRow = this.charsPerRow;
-		ctx.fillStyle = getComputedStyle(this.dom).getPropertyValue("--mn-echo-color").trim() || ECHO_COLOR;
+		ctx.fillStyle = color;
 		ctx.globalAlpha = 1;
 		for (const hit of hits) {
 			const item = this.model.itemAt(hit.from);
@@ -804,32 +802,6 @@ class MinimapView {
 			const bottom = Math.max(snap(tag.top + tag.height) - 1 / ratio, top + TAG_MIN_HEIGHT);
 			fillRoundedBar(ctx, left, top, width, bottom - top);
 		}
-	}
-
-	/**
-	 * Fond des blocs où apparaît le mot tapé dans la barre de recherche d'Obsidian (Ctrl+F). Peint sous
-	 * les lignes et sur toute la largeur, il déborde dans les marges, où les traits des étiquettes se
-	 * dessinent par-dessus : un bloc étiqueté y reste repérable sans perdre sa couleur.
-	 */
-	private paintMatches(ctx: CanvasRenderingContext2D) {
-		const { view } = this;
-		const hits = this.search.hits(view.state);
-		if (hits.length === 0) return;
-		const spans: { top: number; bottom: number }[] = [];
-		for (const hit of hits) {
-			const top = this.model.top(hit.from) * this.scale;
-			// Même hauteur plancher que le flash, sans quoi un paragraphe court ferait à peine un pixel.
-			const bottom = Math.max(this.model.bottom(hit.to) * this.scale, top + MIN_FLASH_HEIGHT);
-			const last = spans[spans.length - 1];
-			// Ce plancher fait parfois chevaucher deux blocs voisins : un seul rectangle, pour que
-			// l'opacité ne double pas.
-			if (last && top < last.bottom) last.bottom = Math.max(last.bottom, bottom);
-			else spans.push({ top, bottom });
-		}
-		// Le canevas n'affiche aucun texte : styles.css lui donne pour couleur celle de la recherche.
-		ctx.fillStyle = getComputedStyle(this.canvas).color;
-		ctx.globalAlpha = SEARCH_ALPHA;
-		for (const span of spans) ctx.fillRect(0, span.top, WIDTH, span.bottom - span.top);
 	}
 
 	/**

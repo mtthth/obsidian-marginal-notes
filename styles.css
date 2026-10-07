@@ -133,8 +133,8 @@
 	user-select: none;
 }
 
-/* La couleur du canevas, qui n'affiche aucun texte, est celle que minimap.ts donne au fond des blocs
-   où apparaît le mot cherché (Ctrl+F) : l'accent, comme le cadre de l'occurrence dans l'éditeur. */
+/* La couleur du canevas, qui n'affiche aucun texte, est celle que minimap.ts donne aux mots
+   cherchés (Ctrl+F) : l'accent, comme le cadre de l'occurrence dans l'éditeur. */
 .mn-minimap canvas {
 	position: relative;
 	display: block;

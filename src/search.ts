@@ -3,9 +3,9 @@
 import { EditorState, Line, RangeSetBuilder, StateEffect, Text } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { SearchCursor } from "@codemirror/search";
-import { allParagraphs, lineTextStart } from "./paragraphs";
+import { lineTextStart } from "./paragraphs";
 
-/** Portion de la note où apparaît le mot cherché : un paragraphe entier, ou une ligne hors paragraphe. */
+/** Une occurrence du mot cherché. */
 export interface SearchHit {
 	from: number;
 	to: number;
@@ -32,25 +32,11 @@ function forEachMatch(doc: Text, query: string, from: number, to: number, visit:
 	}
 }
 
-/**
- * Blocs de la note où apparaît `query`, dans l'ordre et chacun une seule fois : le paragraphe qui
- * contient l'occurrence, ou sa seule ligne quand elle est hors de tout paragraphe (frontmatter, bloc
- * de code, tableau…).
- */
+/** Occurrences de `query` dans la note, dans l'ordre. */
 export function searchHits(state: EditorState, query: string): SearchHit[] {
 	const hits: SearchHit[] = [];
 	if (!query) return hits;
-	const doc = state.doc;
-	const blocks = allParagraphs(state);
-	let b = 0;
-	forEachMatch(doc, query, 0, doc.length, (from) => {
-		const last = hits[hits.length - 1];
-		// Encore dans le bloc déjà retenu.
-		if (last && from <= last.to) return;
-		while (b < blocks.length && blocks[b].to < from) b++;
-		const block = b < blocks.length && blocks[b].from <= from ? blocks[b] : doc.lineAt(from);
-		hits.push({ from: block.from, to: block.to });
-	});
+	forEachMatch(state.doc, query, 0, state.doc.length, (from, to) => hits.push({ from, to }));
 	return hits;
 }
 
@@ -64,7 +50,7 @@ export class SearchWatcher {
 	private current = "";
 	private host: HTMLElement | null;
 	private observer = new MutationObserver(() => this.refresh());
-	/** Derniers blocs trouvés, avec le texte et le mot d'où ils viennent : un doc CM6 est immuable. */
+	/** Dernières occurrences trouvées, avec le texte et le mot d'où ils viennent : un doc CM6 est immuable. */
 	private cache: { doc: Text; query: string; hits: SearchHit[] } | null = null;
 
 	constructor(view: EditorView, private onChange: () => void) {
@@ -86,7 +72,7 @@ export class SearchWatcher {
 		this.observer.disconnect();
 	}
 
-	/** Blocs où apparaît le mot cherché, recalculés seulement quand le texte ou le mot a changé. */
+	/** Occurrences du mot cherché, recalculées seulement quand le texte ou le mot a changé. */
 	hits(state: EditorState): SearchHit[] {
 		const { cache } = this;
 		if (cache && cache.doc === state.doc && cache.query === this.current) return cache.hits;
