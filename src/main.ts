@@ -30,9 +30,11 @@ function noParagraphNotice() {
 export default class MarginalNotesPlugin extends Plugin {
 	settings!: MarginalNotesSettings;
 	// Le clic droit ne déplace pas le curseur CM6 : on retient la position de l'événement
-	// natif "contextmenu" pour retrouver le paragraphe visé au clic, plutôt que de se fier
-	// à selection.main.head qui reflète l'ancienne position du curseur.
-	private lastContextMenuPos: { x: number; y: number } | null = null;
+	// natif "contextmenu", et l'élément visé, pour retrouver le paragraphe visé au clic, plutôt
+	// que de se fier à selection.main.head qui reflète l'ancienne position du curseur.
+	private lastContextMenu: { x: number; y: number; target: Node | null } | null = null;
+	/** Documents où l'on guette le clic droit : celui de la fenêtre principale et de chaque fenêtre détachée. */
+	private contextMenuDocs = new Set<Document>();
 
 	async onload() {
 		await this.loadSettings();
@@ -51,15 +53,14 @@ export default class MarginalNotesPlugin extends Plugin {
 		this.registerMarkdownPostProcessor(createReadingPostProcessor(this));
 		this.addSettingTab(new MarginalNotesSettingTab(this.app, this));
 
-		// En phase de capture, pour que la position soit à jour quand l'éditeur construit son menu.
-		this.registerDomEvent(
-			document,
-			"contextmenu",
-			(evt: MouseEvent) => {
-				this.lastContextMenuPos = { x: evt.clientX, y: evt.clientY };
-			},
-			{ capture: true }
+		// Une fenêtre détachée a son propre document : le clic droit se guette dans chacune, celles déjà
+		// ouvertes quand le plugin se charge comme celles qu'on ouvrira.
+		this.watchContextMenus(document);
+		this.app.workspace.onLayoutReady(() =>
+			this.app.workspace.iterateAllLeaves((leaf) => this.watchContextMenus(leaf.view.containerEl.ownerDocument))
 		);
+		this.registerEvent(this.app.workspace.on("window-open", (win) => this.watchContextMenus(win.doc)));
+		this.registerEvent(this.app.workspace.on("window-close", (win) => this.unwatchContextMenus(win.doc)));
 
 		this.addCommand({
 			id: "tag-current-paragraph",
@@ -94,9 +95,12 @@ export default class MarginalNotesPlugin extends Plugin {
 			this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
 				const cmView = getCmView(editor);
 				if (!cmView) return;
-				const pos =
-					(this.lastContextMenuPos && cmView.posAtCoords(this.lastContextMenuPos)) ??
-					cmView.state.selection.main.head;
+				// Le clic droit ne vaut que s'il a eu lieu dans le texte de cet éditeur, et pour ce menu-ci : fait
+				// dans une autre fenêtre ou une autre note, ou menu ouvert au clavier, c'est le curseur qui vise.
+				const last = this.lastContextMenu;
+				this.lastContextMenu = null;
+				const clicked = last?.target && cmView.contentDOM.contains(last.target) ? cmView.posAtCoords(last) : null;
+				const pos = clicked ?? cmView.state.selection.main.head;
 				// Le paragraphe visé, relevé à l'ouverture du menu : le texte peut changer avant qu'on y
 				// choisisse, et l'écriture le retrouvera alors (voir tagEdit.ts).
 				const block = paragraphAt(cmView.state, pos);
@@ -118,6 +122,29 @@ export default class MarginalNotesPlugin extends Plugin {
 			})
 		);
 	}
+
+	onunload() {
+		for (const doc of [...this.contextMenuDocs]) this.unwatchContextMenus(doc);
+	}
+
+	// En phase de capture, pour que la position soit à jour quand l'éditeur construit son menu.
+	private watchContextMenus(doc: Document) {
+		if (this.contextMenuDocs.has(doc)) return;
+		this.contextMenuDocs.add(doc);
+		doc.addEventListener("contextmenu", this.onContextMenu, { capture: true });
+	}
+
+	/** Cesse de guetter une fenêtre qui se ferme, et lâche ce qu'on y avait retenu. */
+	private unwatchContextMenus(doc: Document) {
+		this.contextMenuDocs.delete(doc);
+		doc.removeEventListener("contextmenu", this.onContextMenu, { capture: true });
+		if (this.lastContextMenu?.target?.ownerDocument === doc) this.lastContextMenu = null;
+	}
+
+	// Pas de `instanceof Node` : un élément d'une fenêtre détachée n'est pas une instance du Node de la principale.
+	private onContextMenu = (evt: MouseEvent) => {
+		this.lastContextMenu = { x: evt.clientX, y: evt.clientY, target: evt.target as Node | null };
+	};
 
 	/** Ouvre le menu d'étiquetage du paragraphe, sous la position `pos` ; prévient s'il n'y a pas de paragraphe. */
 	private tagParagraph(cmView: EditorView, block: ParagraphBlock | null, pos: number) {
