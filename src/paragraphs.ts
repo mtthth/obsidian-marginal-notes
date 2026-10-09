@@ -21,17 +21,19 @@ const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 // niveau 1 pour `=`, 2 pour `-`.
 const SETEXT_RE = /^\s{0,3}(=+|-+)\s*$/;
 const FENCE_RE = /^\s*(`{3,}|~{3,})/;
-// Préfixe (titre, citation, puce, liste numérotée, case à cocher) après lequel insérer le
-// marqueur, pour ne pas casser la syntaxe de la ligne.
-const PREFIX_RE = /^\s*(?:#{1,6}\s+|(?:>\s?)+|(?:[-*+]|\d+[.)])\s+(?:\[.\]\s+)?)?/;
+// Préfixe (citations, puis titre, puce, liste numérotée, case à cocher) après lequel insérer le
+// marqueur, pour ne pas casser la syntaxe de la ligne. Les citations se cumulent avec le reste :
+// dans `> - élément`, le marqueur va après la puce.
+const PREFIX_RE = /^\s*(?:>\s*)*(?:#{1,6}\s+|(?:[-*+]|\d+[.)])\s+(?:\[.\]\s+)?)?/;
+// Ce qu'un marqueur en tête casserait : un tableau, un en-tête de callout, une définition de note de
+// bas de page (`[^1]: …`) ou de lien (`[ref]: adresse "titre"`), une case à cocher sans texte
+// (`- [ ]`, qui n'en serait plus une avec le marqueur collé à son crochet).
+const UNTAGGABLE_RE = /^(?:\||\[!|\[\^[^\]]+\]:|\[[^\]]+\]:\s*\S+(?:\s+["'(].*)?$|\[.\]$)/;
 
 /** Décalage du marqueur dans la première ligne d'un bloc, ou null si le bloc ne peut pas être étiqueté. */
 function markerOffset(text: string): number | null {
 	const offset = PREFIX_RE.exec(text)?.[0].length ?? 0;
-	const rest = text.slice(offset);
-	// Tableaux et en-têtes de callout : un marqueur en tête casserait leur rendu.
-	if (rest.startsWith("|") || rest.startsWith("[!")) return null;
-	return offset;
+	return UNTAGGABLE_RE.test(text.slice(offset)) ? null : offset;
 }
 
 /**

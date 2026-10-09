@@ -76,7 +76,7 @@ Au moins l'un des trois est requis. Le commentaire se modifie à la main comme n
 
 ## Ce qu'est un paragraphe
 
-Le plugin découpe la note lui-même, en blocs de lignes non vides séparés par des lignes vides. Un titre forme un bloc à lui seul. Sont ignorés : le frontmatter, les blocs de code, de maths et de commentaires. Les tableaux et les en-têtes de callout ne peuvent pas être étiquetés, car un marqueur en tête casserait leur rendu.
+Le plugin découpe la note lui-même, en blocs de lignes non vides séparés par des lignes vides. Un titre forme un bloc à lui seul. Sont ignorés : le frontmatter, les blocs de code, de maths et de commentaires. Les tableaux, les en-têtes de callout, les définitions de notes de bas de page (`[^1]: …`) et de liens (`[ref]: adresse`) et les cases à cocher sans texte ne peuvent pas être étiquetés, car un marqueur en tête casserait leur rendu. Dans une citation, le marqueur se place après la puce ou les dièses d'un titre : `> - %%mn …%% élément`.
 
 ## Installation
 
