@@ -8,11 +8,15 @@ import { applyTag } from "./tagEdit";
 import { TextInputModal } from "./textInputModal";
 import type MarginalNotesPlugin from "./main";
 
+/**
+ * Ouvre le menu d'étiquetage du paragraphe à la position `at` (coordonnées de la fenêtre), dans la fenêtre de
+ * l'éditeur : une fenêtre détachée a son propre document.
+ */
 export function openTagMenu(
 	plugin: MarginalNotesPlugin,
 	view: EditorView,
 	block: ParagraphBlock,
-	event: MouseEvent
+	at: { x: number; y: number }
 ) {
 	const existing = parseMarker(markerText(block))?.tag ?? {};
 	const menu = new Menu();
@@ -54,5 +58,5 @@ export function openTagMenu(
 		});
 	}
 
-	menu.showAtMouseEvent(event);
+	menu.showAtPosition(at, view.dom.ownerDocument);
 }

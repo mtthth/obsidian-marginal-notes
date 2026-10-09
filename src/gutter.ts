@@ -98,7 +98,8 @@ export function createGutter(plugin: MarginalNotesPlugin, tagField: StateField<T
 			click: (view: EditorView, line, event) => {
 				const block = paragraphAt(view.state, line.from);
 				if (!block) return false;
-				openTagMenu(plugin, view, block, event as MouseEvent);
+				const { clientX: x, clientY: y } = event as MouseEvent;
+				openTagMenu(plugin, view, block, { x, y });
 				return true;
 			},
 		},

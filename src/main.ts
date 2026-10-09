@@ -150,15 +150,14 @@ export default class MarginalNotesPlugin extends Plugin {
 	private tagParagraph(cmView: EditorView, block: ParagraphBlock | null, pos: number) {
 		if (!block) return noParagraphNotice();
 
-		// La position a pu être relevée sur un texte plus long qu'il ne l'est devenu.
+		// Sous la position, ou au coin de l'éditeur si elle n'est pas affichée. Elle a pu être relevée sur un
+		// texte plus long qu'il ne l'est devenu.
 		const coords = cmView.coordsAtPos(Math.min(pos, cmView.state.doc.length));
 		const rect = cmView.dom.getBoundingClientRect();
-		const fakeEvent = {
-			clientX: coords ? coords.left : rect.left + 40,
-			clientY: coords ? coords.bottom : rect.top + 40,
-		} as MouseEvent;
-
-		openTagMenu(this, cmView, block, fakeEvent);
+		openTagMenu(this, cmView, block, {
+			x: coords ? coords.left : rect.left + 40,
+			y: coords ? coords.bottom : rect.top + 40,
+		});
 	}
 
 	/**
