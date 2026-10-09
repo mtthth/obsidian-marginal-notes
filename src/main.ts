@@ -137,19 +137,27 @@ export default class MarginalNotesPlugin extends Plugin {
 		openTagMenu(this, cmView, block, fakeEvent);
 	}
 
+	/**
+	 * Les notes ouvertes et chargées. Un onglet pas encore affiché depuis le démarrage est « différé » : sa
+	 * vue n'est pas une MarkdownView et n'a ni éditeur ni rendu ; elle prendra les réglages à son chargement.
+	 */
+	private markdownViews(): MarkdownView[] {
+		return this.app.workspace
+			.getLeavesOfType("markdown")
+			.map((leaf) => leaf.view)
+			.filter((view): view is MarkdownView => view instanceof MarkdownView);
+	}
+
 	/** Fait redessiner la gouttière et la minipage de chaque note ouverte, sans toucher au mode lecture. */
 	refreshEditorViews() {
-		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			const cmView = getCmView((leaf.view as MarkdownView).editor);
-			cmView?.dispatch({ effects: refreshMarkersEffect.of() });
+		for (const view of this.markdownViews()) {
+			getCmView(view.editor)?.dispatch({ effects: refreshMarkersEffect.of() });
 		}
 	}
 
 	refreshAllEditors() {
 		this.refreshEditorViews();
-		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			(leaf.view as MarkdownView).previewMode?.rerender(true);
-		}
+		for (const view of this.markdownViews()) view.previewMode?.rerender(true);
 	}
 
 	/** Couleur hexadécimale associée à une clé de la palette, si elle existe encore. */
