@@ -62,6 +62,8 @@ export class MarginalNotesSettingTab extends PluginSettingTab {
 						.onChange(async (value) => {
 							entry.label = value;
 							await this.plugin.saveSettings();
+							// Une bulle de la minipage porte ce libellé quand son étiquette n'a pas de texte à elle.
+							this.plugin.refreshEditorViews();
 						})
 				)
 				.addColorPicker((picker) =>
