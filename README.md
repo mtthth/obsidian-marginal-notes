@@ -38,7 +38,7 @@ Un paragraphe peut être **corné** : un simple repère pour y revenir, sans cou
 ### Navigation
 
 - Commandes **Aller à l'étiquette suivante** / **précédente** : placent le curseur au début du paragraphe étiqueté voisin, c'est-à-dire qui porte une couleur ou un texte. Les pages cornées n'en font pas partie.
-- **Centrage au clic** (réglable) : le premier clic dans un paragraphe le centre à l'écran et le fait clignoter ; un second clic dans le même paragraphe se contente de poser le curseur.
+- **Centrage au clic** (réglable) : le premier clic dans un paragraphe le centre à l'écran et le fait clignoter ; un second clic dans le même paragraphe se contente de poser le curseur. Un double clic, qui sélectionne un mot, ne déplace pas la vue, pas plus qu'un clic avec Maj, Ctrl, Alt ou Cmd.
 
 ## Commandes
 

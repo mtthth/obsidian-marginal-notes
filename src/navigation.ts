@@ -15,6 +15,13 @@ const CLICK_SLOP = 4;
 const TOP_MARGIN = 16;
 
 /**
+ * Attente avant de centrer au clic : le délai que CodeMirror accorde à un second appui pour en faire un
+ * double clic, qui sélectionne un mot. Centrer dès le premier clic ferait défiler le texte sous le
+ * pointeur, et le second appui tomberait sur un autre mot.
+ */
+const DOUBLE_CLICK_MS = 400;
+
+/**
  * Défilement qui amène `pos` en haut de l'éditeur, et non au milieu : le paragraphe visé se lit alors
  * d'un trait, avec la suite de la page sous les yeux.
  */
@@ -36,19 +43,31 @@ const centred = new WeakMap<EditorView, number>();
  */
 const scrolledTo = new WeakSet<EditorView>();
 
+/** Centrage d'un clic, dans chaque éditeur, qui attend de savoir si un second appui en fait un double clic. */
+const pendingCentring = new WeakMap<EditorView, number>();
+
+function cancelPendingCentring(view: EditorView) {
+	window.clearTimeout(pendingCentring.get(view));
+	pendingCentring.delete(view);
+}
+
 /**
  * Retient le paragraphe sur lequel la vue vient d'être centrée, d'où que vienne le centrage : la
  * minipage y mène autant qu'un clic dans le texte, et y arriver doit dispenser de l'y ramener.
  */
 export function rememberCentred(view: EditorView, from: number) {
 	centred.set(view, from);
-	// La vue vient d'être placée pour lui : ce n'est plus lui qui a fait défiler jusque-là.
+	// La vue vient d'être placée pour lui : ce n'est plus lui qui a fait défiler jusque-là, et le
+	// centrage d'un clic resté en attente la ramènerait ailleurs.
 	scrolledTo.delete(view);
+	cancelPendingCentring(view);
 }
 
 /** Signale un défilement fait à la main, par la molette ou au doigt. */
 export function rememberScrolled(view: EditorView) {
 	scrolledTo.add(view);
+	// Le texte qu'il est allé chercher ne doit pas lui être retiré par le centrage d'un clic en attente.
+	cancelPendingCentring(view);
 }
 
 /**
@@ -106,18 +125,24 @@ export function unreadDomSelection(view: EditorView): EditorSelection | undefine
  * quand on vient d'y arriver en faisant défiler soi-même : le clic adopte alors le paragraphe sans
  * rien déplacer. Le curseur, lui, reste toujours là où on l'a posé. CM6 pose ces écouteurs sur
  * contentDOM : les clics de la gouttière et de la minipage, qui sont à côté, n'arrivent pas jusqu'ici.
+ *
+ * Le centrage attend DOUBLE_CLICK_MS : un second appui l'annule, et le double clic, qui sélectionne un
+ * mot, adopte le paragraphe sans déplacer la vue. Un clic avec Maj (qui étend la sélection), Ctrl, Alt
+ * ou Cmd (qui ouvrent un lien, ajoutent un curseur) ne centre rien non plus.
  */
 export function centerOnClick(plugin: MarginalNotesPlugin) {
 	let downAt: { x: number; y: number } | null = null;
 	return EditorView.domEventHandlers({
-		mousedown: (event) => {
+		mousedown: (event, view) => {
 			downAt = { x: event.clientX, y: event.clientY };
+			cancelPendingCentring(view);
 		},
 		click: (event, view) => {
 			// Un glissement (sélection) se termine aussi par un clic, mais ne doit pas déplacer la vue.
 			const dragged = !downAt || Math.hypot(event.clientX - downAt.x, event.clientY - downAt.y) > CLICK_SLOP;
 			downAt = null;
-			if (dragged || !plugin.settings.centerOnClick) return;
+			const modified = event.shiftKey || event.ctrlKey || event.altKey || event.metaKey;
+			if (dragged || modified || event.detail > 1 || !plugin.settings.centerOnClick) return;
 			const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
 			const block = pos === null ? null : paragraphAt(view.state, pos);
 			if (!block) return;
@@ -128,13 +153,23 @@ export function centerOnClick(plugin: MarginalNotesPlugin) {
 			const arrivedByScroll = scrolledTo.delete(view);
 			centred.set(view, block.from);
 			if (arrivedByScroll) return;
-			const selection = unreadDomSelection(view);
-			view.dispatch({
-				selection,
-				userEvent: selection && "select.pointer",
-				effects: scrollToTop(textStart(block)),
-			});
-			flashParagraph(view, block.from, block.to);
+			const doc = view.state.doc;
+			pendingCentring.set(
+				view,
+				window.setTimeout(() => {
+					pendingCentring.delete(view);
+					// Le texte a changé depuis le clic (on s'est mis à écrire) : la vue ne doit plus bouger,
+					// et les positions du paragraphe ne valent plus.
+					if (!view.dom.isConnected || view.state.doc !== doc) return;
+					const selection = unreadDomSelection(view);
+					view.dispatch({
+						selection,
+						userEvent: selection && "select.pointer",
+						effects: scrollToTop(textStart(block)),
+					});
+					flashParagraph(view, block.from, block.to);
+				}, DOUBLE_CLICK_MS)
+			);
 		},
 	});
 }
