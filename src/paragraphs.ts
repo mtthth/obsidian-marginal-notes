@@ -20,7 +20,9 @@ const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 // Ligne de `=` ou de `-` qui, juste sous un paragraphe ordinaire, le souligne en titre (setext) :
 // niveau 1 pour `=`, 2 pour `-`.
 const SETEXT_RE = /^\s{0,3}(=+|-+)\s*$/;
-const FENCE_RE = /^\s*(`{3,}|~{3,})/;
+// Ouverture d'un bloc de code : trois backticks ou trois tildes au moins. Une ouverture de backticks n'en
+// contient pas d'autres sur sa ligne : « ```x``` texte » est du code en ligne, pas un bloc.
+const FENCE_RE = /^\s*(?:(`{3,})[^`]*|(~{3,}).*)$/;
 // Préfixe (citations, puis titre, puce, liste numérotée, case à cocher) après lequel insérer le
 // marqueur, pour ne pas casser la syntaxe de la ligne. Les citations se cumulent avec le reste :
 // dans `> - élément`, le marqueur va après la puce.
@@ -47,7 +49,8 @@ function isPlainParagraph(text: string): boolean {
 /** Si la ligne ouvre un bloc à ignorer, renvoie le motif de sa ligne fermante. */
 export function blockCloser(text: string): RegExp | null {
 	const fence = FENCE_RE.exec(text);
-	if (fence) return new RegExp(`^\\s*${fence[1][0]}{${fence[1].length},}\\s*$`);
+	const run = fence && (fence[1] ?? fence[2]);
+	if (run) return new RegExp(`^\\s*${run[0]}{${run.length},}\\s*$`);
 	const trimmed = text.trim();
 	if (trimmed.startsWith("$$") && !trimmed.slice(2).includes("$$")) return /\$\$/;
 	if (trimmed.startsWith("%%") && !trimmed.slice(2).includes("%%")) return /%%/;
