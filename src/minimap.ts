@@ -1,6 +1,6 @@
 // Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
 
-import { Component, MarkdownRenderer, Platform } from "obsidian";
+import { Component, editorInfoField, MarkdownRenderer, Platform } from "obsidian";
 import { StateField, type Text } from "@codemirror/state";
 import { EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 import { hasLabel, refreshMarkersEffect } from "./model";
@@ -1278,7 +1278,9 @@ class MinimapView {
 		const rank = this.paragraphRank(hover);
 		const line = `${rank ? `Paragraphe ${rank} · ` : ""}Ligne ${view.state.doc.lineAt(hover.from).number}`;
 		const rendered = createDiv({ cls: "markdown-rendered" });
-		const path = this.plugin.app.workspace.getActiveFile()?.path ?? "";
+		// La note de cet éditeur, et non la note active : on survole sans cliquer la minipage d'un autre panneau.
+		// Les liens et les embeds du paragraphe se résolvent à partir d'elle.
+		const path = view.state.field(editorInfoField, false)?.file?.path ?? "";
 		const owner = this.previewOwner.addChild(new Component());
 		MarkdownRenderer.render(this.plugin.app, text, rendered, path, owner).then(
 			() => {
