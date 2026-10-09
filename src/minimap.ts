@@ -233,6 +233,15 @@ function fillRoundedBar(ctx: CanvasRenderingContext2D, x: number, y: number, wid
 	ctx.fill();
 }
 
+/**
+ * L'élément de `selector` qui contient la cible de `event` (ou l'est), ou null. Par instanceOf d'Obsidian et non
+ * instanceof : dans une fenêtre détachée, un élément n'est pas une instance de l'Element de la fenêtre principale.
+ */
+function closestTarget(event: Event, selector: string): HTMLElement | null {
+	const target = event.target as Node | null;
+	return target?.instanceOf(Element) ? target.closest<HTMLElement>(selector) : null;
+}
+
 /** Rang d'un repère de section : quand la place manque, un chapitre ou un trait l'emporte sur une partie. */
 function sectionRank(section: SectionBoundary): number {
 	return section.level === 3 ? 0 : 1;
@@ -1123,8 +1132,7 @@ class MinimapView {
 
 		// Un clic sur une bulle ou sur un repère de section mène à ce qu'il désigne, même s'il a été
 		// décalé pour ne pas en recouvrir un autre.
-		const marker =
-			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
+		const marker = closestTarget(event, ".mn-bubble, .mn-section");
 		if (marker) {
 			const pos = Number(marker.dataset.pos);
 			this.scrollToPos(pos, true);
@@ -1149,7 +1157,7 @@ class MinimapView {
 		event.stopPropagation();
 		if (!this.scale) return;
 		// Comme au clic gauche : une bulle vise son paragraphe, où qu'elle ait été décalée.
-		const bubble = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble") : null;
+		const bubble = closestTarget(event, ".mn-bubble");
 		// Le début du bloc, et non la position proportionnelle d'un glissement : la corne doit se poser
 		// sur le paragraphe de la bande visée, même si ce bloc replie plusieurs lignes.
 		const pos = bubble ? Number(bubble.dataset.pos) : this.blockAtY(event.clientY)?.from ?? 0;
@@ -1218,8 +1226,7 @@ class MinimapView {
 			if (Math.hypot(event.clientX - this.reviveAt.x, event.clientY - this.reviveAt.y) < PREVIEW_REVIVE_DISTANCE) return;
 			this.reviveAt = null;
 		}
-		const marker =
-			event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".mn-bubble, .mn-section") : null;
+		const marker = closestTarget(event, ".mn-bubble, .mn-section");
 		const index = marker
 			? this.model.indexAt(Number(marker.dataset.anchor ?? marker.dataset.pos))
 			: this.model.indexAtY(this.modelYAt(event.clientY));

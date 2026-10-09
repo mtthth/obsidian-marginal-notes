@@ -35,7 +35,9 @@ export function createReadingPostProcessor(plugin: MarginalNotesPlugin) {
 		});
 		if (!hit) return;
 
-		const target = el.firstElementChild instanceof HTMLElement ? el.firstElementChild : el;
+		// instanceOf d'Obsidian, et non instanceof, qui échoue pour un élément d'une fenêtre détachée.
+		const first = el.firstElementChild;
+		const target = first?.instanceOf(HTMLElement) ? first : el;
 		target.addClass("mn-reading-tag");
 		const color = plugin.paletteColor(hit.tag.color);
 		if (color) {
