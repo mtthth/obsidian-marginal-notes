@@ -291,8 +291,13 @@ class MinimapView {
 	/** Ce que l'aperçu affiche (ou rend en ce moment), et le rendu en cours : un rendu périmé est jeté. */
 	private previewKey = "";
 	private previewRender = 0;
-	/** Porte les composants du rendu markdown (aperçus de liens, images…) : déchargé avec la minipage. */
+	/**
+	 * Porte les composants des rendus markdown (embeds, blocs d'autres plugins…) : déchargé avec la minipage.
+	 * Chaque rendu a le sien, enfant de celui-ci, déchargé dès que l'aperçu ne l'affiche plus ou le jette.
+	 */
 	private previewOwner = new Component();
+	/** Composant du rendu que l'aperçu affiche. */
+	private previewShown: Component | null = null;
 	/** Sections de la note, et le texte d'où elles ont été relevées : un doc CM6 est immuable. */
 	private sectionDoc: Text | null = null;
 	private sections: SectionBoundary[] = [];
@@ -383,6 +388,8 @@ class MinimapView {
 	}
 
 	destroy() {
+		// Un rendu de l'aperçu encore en cours n'aura plus où s'afficher.
+		this.previewRender++;
 		cancelAnimationFrame(this.frame);
 		window.clearTimeout(this.flashTimer);
 		this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
@@ -1257,6 +1264,10 @@ class MinimapView {
 		if (!hover) {
 			this.previewRender++;
 			this.previewKey = "";
+			// Masqué, le rendu n'a plus à vivre (un embed qui se met à jour, un bloc d'un autre plugin…) :
+			// ses composants sont déchargés. Le prochain survol en refait un.
+			this.replacePreviewOwner(null);
+			this.previewText.empty();
 			return preview.hide();
 		}
 		const text = textWithoutMarker(view.state.doc, hover.from, Math.min(hover.to, hover.from + PREVIEW_MAX_CHARS));
@@ -1268,12 +1279,24 @@ class MinimapView {
 		const line = `${rank ? `Paragraphe ${rank} · ` : ""}Ligne ${view.state.doc.lineAt(hover.from).number}`;
 		const rendered = createDiv({ cls: "markdown-rendered" });
 		const path = this.plugin.app.workspace.getActiveFile()?.path ?? "";
-		void MarkdownRenderer.render(this.plugin.app, text, rendered, path, this.previewOwner).then(() => {
-			if (render !== this.previewRender) return;
-			this.previewLine.textContent = line;
-			this.previewText.replaceChildren(rendered);
-			this.layoutPreview();
-		});
+		const owner = this.previewOwner.addChild(new Component());
+		MarkdownRenderer.render(this.plugin.app, text, rendered, path, owner).then(
+			() => {
+				// Périmé : un autre survol a pris sa place, ou l'aperçu a été masqué.
+				if (render !== this.previewRender) return void this.previewOwner.removeChild(owner);
+				this.previewLine.textContent = line;
+				this.previewText.replaceChildren(rendered);
+				this.replacePreviewOwner(owner);
+				this.layoutPreview();
+			},
+			() => void this.previewOwner.removeChild(owner)
+		);
+	}
+
+	/** Le rendu que l'aperçu affiche désormais (ou aucun) : les composants du précédent sont déchargés. */
+	private replacePreviewOwner(owner: Component | null) {
+		if (this.previewShown) this.previewOwner.removeChild(this.previewShown);
+		this.previewShown = owner;
 	}
 
 	/**
