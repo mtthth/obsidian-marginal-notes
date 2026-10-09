@@ -31,10 +31,38 @@ const PREFIX_RE = /^\s*(?:>\s*)*(?:#{1,6}\s+|(?:[-*+]|\d+[.)])\s+(?:\[.\]\s+)?)?
 // bas de page (`[^1]: …`) ou de lien (`[ref]: adresse "titre"`), une case à cocher sans texte
 // (`- [ ]`, qui n'en serait plus une avec le marqueur collé à son crochet).
 const UNTAGGABLE_RE = /^(?:\||\[!|\[\^[^\]]+\]:|\[[^\]]+\]:\s*\S+(?:\s+["'(].*)?$|\[.\]$)/;
-// Retrait d'au moins quatre colonnes : en tête de bloc et hors d'une liste, c'est du code.
-const INDENTED_RE = /^(?: {4}| {0,3}\t)/;
-// Élément de liste au premier niveau (trois espaces de retrait au plus).
-const LIST_ITEM_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
+// Élément de liste : son retrait, sa puce ou son numéro, puis les blancs qui mènent à son texte.
+const LIST_ITEM_RE = /^[ \t]*([-*+]|\d{1,9}[.)])([ \t]+|$)/;
+
+/** Colonne du premier caractère qui n'est pas un blanc : une tabulation mène au multiple de quatre suivant. */
+function indentColumn(text: string): number {
+	let column = 0;
+	for (const ch of text) {
+		if (ch === " ") column++;
+		else if (ch === "\t") column += 4 - (column % 4);
+		else break;
+	}
+	return column;
+}
+
+/**
+ * L'élément de liste que la ligne ouvre, ou null. `content` : la colonne où commence son texte, celle où
+ * s'alignent les blocs qui le continuent (2 pour `- `, 3 pour `1. `, plus le retrait de la puce, `indent`).
+ * `interrupts` : il peut couper un paragraphe pour ouvrir une liste, ce que ne fait ni un élément vide ni
+ * une liste numérotée qui ne commence pas à 1.
+ */
+function listItem(text: string, indent: number): { content: number; interrupts: boolean } | null {
+	const item = LIST_ITEM_RE.exec(text);
+	if (!item) return null;
+	const marker = indent + item[1].length;
+	let column = marker;
+	for (const ch of item[2]) column = ch === "\t" ? column + 4 - (column % 4) : column + 1;
+	const empty = text.slice(item[0].length).trim() === "";
+	const interrupts = !empty && (/^[-*+]$/.test(item[1]) || /^0*1[.)]$/.test(item[1]));
+	// Rien après la puce, ou plus de quatre colonnes de blanc (le texte est alors du code dans l'élément) :
+	// le contenu commence une colonne après la puce.
+	return { content: empty || column - marker > 4 ? marker + 1 : column, interrupts };
+}
 
 /** Décalage du marqueur dans la première ligne d'un bloc, ou null si le bloc ne peut pas être étiqueté. */
 function markerOffset(text: string): number | null {
@@ -51,7 +79,7 @@ function isPlainParagraph(text: string): boolean {
 }
 
 /** Si la ligne ouvre un bloc à ignorer, renvoie le motif de sa ligne fermante. */
-export function blockCloser(text: string): RegExp | null {
+function blockCloser(text: string): RegExp | null {
 	const fence = FENCE_RE.exec(text);
 	const run = fence && (fence[1] ?? fence[2]);
 	if (run) return new RegExp(`^\\s*${run[0]}{${run.length},}\\s*$`);
@@ -70,10 +98,17 @@ export function frontmatterLastLine(doc: Text): number {
 	return 0;
 }
 
-/** Découpage d'un texte : ses blocs étiquetables et ses traits horizontaux, chacun dans l'ordre. */
+/** Intervalle de lignes, par leurs numéros, premier et dernier compris. */
+type LineRange = readonly [number, number];
+
+/**
+ * Découpage d'un texte, chaque liste dans l'ordre : ses blocs étiquetables, ses traits horizontaux, et ses
+ * lignes qui ne sont pas du texte (frontmatter, blocs de code, de maths et de commentaires, code en retrait).
+ */
 interface Scan {
 	blocks: readonly ParagraphBlock[];
 	separators: readonly Line[];
+	nonText: readonly LineRange[];
 }
 
 /**
@@ -88,34 +123,57 @@ function scan(doc: Text): Scan {
 	if (!found) {
 		const blocks: ParagraphBlock[] = [];
 		const separators: Line[] = [];
-		forEachBlock(doc, (block) => blocks.push(block), (line) => separators.push(line));
-		found = { blocks, separators };
+		const nonText: LineRange[] = [];
+		forEachBlock(
+			doc,
+			(block) => blocks.push(block),
+			(line) => separators.push(line),
+			(first, last) => nonText.push([first, last])
+		);
+		found = { blocks, separators, nonText };
 		scans.set(doc, found);
 	}
 	return found;
 }
 
 /**
- * Parcourt les blocs étiquetables dans l'ordre du document, et les traits horizontaux croisés en chemin.
+ * Parcourt les blocs étiquetables dans l'ordre du document, les traits horizontaux croisés en chemin, et
+ * les intervalles de lignes qui ne sont pas du texte.
  *
- * Un bloc qui commence en retrait de quatre colonnes est du code, comme en CommonMark, sauf dans une
- * liste, dont il continue un élément : il n'est pas visité, sans quoi le marqueur s'y lirait en clair.
+ * Un bloc en retrait de quatre colonnes ou plus par rapport à ce qui le contient (la marge, ou le texte de
+ * l'élément de liste qu'il continue) est du code, comme en CommonMark : il n'est pas visité, sans quoi le
+ * marqueur s'y lirait en clair.
  */
-function forEachBlock(doc: Text, visit: (block: ParagraphBlock) => void, onSeparator: (line: Line) => void) {
+function forEachBlock(
+	doc: Text,
+	visit: (block: ParagraphBlock) => void,
+	onSeparator: (line: Line) => void,
+	onNonText: (first: number, last: number) => void
+) {
 	let closer: RegExp | null = null;
+	/**
+	 * Ligne qui a ouvert le bloc à ignorer en cours. Pour un bloc de code délimité, la colonne de ce qui le
+	 * contient (la marge, ou le texte d'un élément de liste) : sa fermeture n'a pas plus de trois colonnes de
+	 * retrait au-delà, et dans un élément de liste, il finit avec l'élément. Null pour un autre bloc.
+	 */
+	let openedAt = 0;
+	let openedIn: number | null = null;
 	let first: Line | null = null;
 	let last: Line | null = null;
-	/** Le bloc en cours est du code en retrait. */
+	/** Le bloc en cours est du code en retrait, et la colonne que ses lignes doivent atteindre pour en être. */
 	let indentedCode = false;
+	let codeColumn = 0;
 	/**
-	 * On est dans une liste : elle commence à une puce ou à un numéro, et finit au premier bloc qui n'est
-	 * pas en retrait et ne commence pas par l'un d'eux, à un titre, à un trait, à un bloc de code.
+	 * Les éléments de liste ouverts, du plus extérieur au plus intérieur : la colonne du texte de chacun. Une
+	 * ligne au moins aussi en retrait que ce texte continue l'élément ; un bloc moins en retrait le ferme.
 	 */
-	let inList = false;
+	const items: number[] = [];
 	const frontmatterEnd = frontmatterLastLine(doc);
+	if (frontmatterEnd > 0) onNonText(1, frontmatterEnd);
 
 	const flush = () => {
 		if (!first || !last) return;
+		if (indentedCode) onNonText(first.number, last.number);
 		const offset = indentedCode ? null : markerOffset(first.text);
 		if (offset !== null) visit({ from: first.from, to: last.to, firstLine: first, markerFrom: first.from + offset });
 		first = last = null;
@@ -127,24 +185,43 @@ function forEachBlock(doc: Text, visit: (block: ParagraphBlock) => void, onSepar
 		const text = line.text;
 
 		if (closer) {
-			if (closer.test(text)) closer = null;
-			continue;
+			const column = indentColumn(text);
+			if (closer.test(text) && (openedIn === null || column < openedIn + 4)) {
+				closer = null;
+				onNonText(openedAt, n);
+				continue;
+			}
+			// Un bloc de code ouvert dans un élément de liste finit avec l'élément, à la première ligne moins en
+			// retrait que son texte, qui se lit alors comme les autres.
+			if (!openedIn || text.trim() === "" || column >= openedIn) continue;
+			closer = null;
+			onNonText(openedAt, n - 1);
 		}
 
-		// Dans du code en retrait, une ligne en retrait en est le contenu, quoi qu'elle porte (```, $$…).
-		if (indentedCode && INDENTED_RE.test(text)) {
+		const column = indentColumn(text);
+
+		// Dans du code en retrait, une ligne assez en retrait en est le contenu, quoi qu'elle porte (```, $$…).
+		if (indentedCode && column >= codeColumn) {
 			last = line;
 			continue;
 		}
 
-		// Hors d'une liste, une ligne en retrait n'ouvre pas de bloc à ignorer (```, $$, %%) : elle ouvre du
+		// Les éléments dont la ligne atteint le texte, et la colonne de celui qui la contient (la marge sinon) :
+		// quatre colonnes au-delà, c'est du code.
+		let depth = items.length;
+		while (depth > 0 && column < items[depth - 1]) depth--;
+		const base = depth > 0 ? items[depth - 1] : 0;
+		const indented = column >= base + 4;
+
+		// Une ligne en retrait de quatre colonnes n'ouvre pas de bloc à ignorer (```, $$, %%) : elle ouvre du
 		// code en retrait, ou continue le paragraphe en cours.
-		const indented = INDENTED_RE.test(text);
-		const opener = indented && !inList ? null : blockCloser(text);
+		const opener: RegExp | null = indented ? null : blockCloser(text);
 		if (opener) {
 			flush();
-			if (!indented) inList = false;
+			items.length = depth;
 			closer = opener;
+			openedAt = n;
+			openedIn = FENCE_RE.test(text) ? base : null;
 			continue;
 		}
 
@@ -165,30 +242,50 @@ function forEachBlock(doc: Text, visit: (block: ParagraphBlock) => void, onSepar
 
 		if (HR_RE.test(text)) {
 			flush();
-			inList = false;
+			items.length = depth;
 			onSeparator(line);
 			continue;
 		}
 
 		if (HEADING_RE.test(text)) {
 			flush();
-			inList = false;
+			items.length = depth;
 			first = last = line;
 			flush();
 			continue;
 		}
 
+		// Un élément de liste, qui s'ouvre dans celui qui le contient (ou dans la marge).
+		const item = indented ? null : listItem(text, column);
 		if (!first) {
 			first = line;
-			indentedCode = indented && !inList;
-			if (!indented) inList = LIST_ITEM_RE.test(text);
-		} else if (LIST_ITEM_RE.test(text)) {
-			// Une liste peut suivre une ligne de texte sans ligne vide entre elles.
-			inList = true;
+			// Un bloc ferme les éléments dont il n'atteint pas le texte.
+			items.length = depth;
+			indentedCode = indented;
+			codeColumn = base + 4;
+			if (item) items.push(item.content);
+		} else if (item && (depth < items.length || item.interrupts || /^[ \t]*>/.test(first.text))) {
+			// Dans un bloc, une ligne moins en retrait que le texte de l'élément en reste la suite, sauf à ouvrir
+			// un élément : le suivant de la liste, une liste qui coupe le paragraphe qui la précède, ou n'importe
+			// quelle liste après une citation, qui ne s'y prolonge pas.
+			items.length = depth;
+			items.push(item.content);
+		} else if (!indented && /^[ \t]*>/.test(text)) {
+			// Une citation coupe le texte qui la précède, et ferme les éléments dont elle n'atteint pas le texte.
+			items.length = depth;
 		}
 		last = line;
 	}
 	flush();
+	if (closer) onNonText(openedAt, doc.lines);
+}
+
+/**
+ * Les lignes de la note qui ne sont pas du texte, en intervalles [premier, dernier] de numéros de ligne,
+ * dans l'ordre : frontmatter, blocs de code (délimités ou en retrait), de maths et de commentaires.
+ */
+export function nonTextLines(doc: Text): readonly LineRange[] {
+	return scan(doc).nonText;
 }
 
 /** Vrai si le bloc est un titre : `#`… sur sa ligne, ou souligné par `===`/`---` (setext). */

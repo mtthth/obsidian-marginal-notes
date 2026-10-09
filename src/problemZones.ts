@@ -1,7 +1,7 @@
 // Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
 
 import type { Text } from "@codemirror/state";
-import { blockCloser, frontmatterLastLine, isHeadingBlock, lineTextStart, type ParagraphBlock } from "./paragraphs";
+import { isHeadingBlock, lineTextStart, nonTextLines, type ParagraphBlock } from "./paragraphs";
 
 /**
  * Un balisage qui signale un endroit à reprendre : le texte entre `open` et `close`, sur une seule ligne,
@@ -169,9 +169,9 @@ const NO_SPANS: readonly ProblemSpan[] = [];
 let lineSpans: { scanner: Scanner; spans: Map<string, readonly ProblemSpan[]> } | null = null;
 
 /**
- * Les zones à reprendre de la note, dans l'ordre, en positions du texte. Comme pour les paragraphes,
- * le frontmatter et les blocs de code, de maths et de commentaires sont laissés de côté : ce qu'ils
- * contiennent n'est pas du texte.
+ * Les zones à reprendre de la note, dans l'ordre, en positions du texte. Les lignes que le découpage en
+ * paragraphes laisse de côté le sont aussi : frontmatter, blocs de code (délimités ou en retrait), de maths
+ * et de commentaires. Ce qu'elles contiennent n'est pas du texte.
  */
 export function problemSpans(doc: Text, zones: ProblemZone[]): ProblemSpan[] {
 	const scanner = scannerFor(zones);
@@ -180,18 +180,14 @@ export function problemSpans(doc: Text, zones: ProblemZone[]): ProblemSpan[] {
 	const known = lineSpans?.scanner === scanner ? lineSpans.spans : null;
 	// Seules les lignes de ce texte-ci sont gardées pour la fois suivante.
 	const kept = new Map<string, readonly ProblemSpan[]>();
-	let closer: RegExp | null = null;
-	for (let n = frontmatterLastLine(doc) + 1; n <= doc.lines; n++) {
+	const skipped = nonTextLines(doc);
+	let next = 0;
+	for (let n = 1; n <= doc.lines; n++) {
+		if (next < skipped.length && skipped[next][0] <= n) {
+			n = skipped[next++][1];
+			continue;
+		}
 		const line = doc.line(n);
-		if (closer) {
-			if (closer.test(line.text)) closer = null;
-			continue;
-		}
-		const opener = blockCloser(line.text);
-		if (opener) {
-			closer = opener;
-			continue;
-		}
 		let found = kept.get(line.text) ?? known?.get(line.text);
 		if (!found) {
 			const scanned = scanLine(line.text, scanner);
