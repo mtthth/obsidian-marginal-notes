@@ -31,6 +31,10 @@ const PREFIX_RE = /^\s*(?:>\s*)*(?:#{1,6}\s+|(?:[-*+]|\d+[.)])\s+(?:\[.\]\s+)?)?
 // bas de page (`[^1]: …`) ou de lien (`[ref]: adresse "titre"`), une case à cocher sans texte
 // (`- [ ]`, qui n'en serait plus une avec le marqueur collé à son crochet).
 const UNTAGGABLE_RE = /^(?:\||\[!|\[\^[^\]]+\]:|\[[^\]]+\]:\s*\S+(?:\s+["'(].*)?$|\[.\]$)/;
+// Retrait d'au moins quatre colonnes : en tête de bloc et hors d'une liste, c'est du code.
+const INDENTED_RE = /^(?: {4}| {0,3}\t)/;
+// Élément de liste au premier niveau (trois espaces de retrait au plus).
+const LIST_ITEM_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 
 /** Décalage du marqueur dans la première ligne d'un bloc, ou null si le bloc ne peut pas être étiqueté. */
 function markerOffset(text: string): number | null {
@@ -69,6 +73,9 @@ export function frontmatterLastLine(doc: Text): number {
 /**
  * Parcourt les blocs étiquetables dans l'ordre du document ; `visit` renvoie true pour s'arrêter.
  * `onSeparator`, s'il est fourni, reçoit en plus les traits horizontaux croisés en chemin.
+ *
+ * Un bloc qui commence en retrait de quatre colonnes est du code, comme en CommonMark, sauf dans une
+ * liste, dont il continue un élément : il n'est pas visité, sans quoi le marqueur s'y lirait en clair.
  */
 function forEachBlock(
 	state: EditorState,
@@ -79,13 +86,21 @@ function forEachBlock(
 	let closer: RegExp | null = null;
 	let first: Line | null = null;
 	let last: Line | null = null;
+	/** Le bloc en cours est du code en retrait. */
+	let indentedCode = false;
+	/**
+	 * On est dans une liste : elle commence à une puce ou à un numéro, et finit au premier bloc qui n'est
+	 * pas en retrait et ne commence pas par l'un d'eux, à un titre, à un trait, à un bloc de code.
+	 */
+	let inList = false;
 	const frontmatterEnd = frontmatterLastLine(doc);
 
 	const flush = (): boolean => {
 		if (!first || !last) return false;
-		const offset = markerOffset(first.text);
+		const offset = indentedCode ? null : markerOffset(first.text);
 		const block = { from: first.from, to: last.to, firstLine: first, markerFrom: first.from + (offset ?? 0) };
 		first = last = null;
+		indentedCode = false;
 		return offset !== null && visit(block) === true;
 	};
 
@@ -98,9 +113,19 @@ function forEachBlock(
 			continue;
 		}
 
-		const opener = blockCloser(text);
+		// Dans du code en retrait, une ligne en retrait en est le contenu, quoi qu'elle porte (```, $$…).
+		if (indentedCode && INDENTED_RE.test(text)) {
+			last = line;
+			continue;
+		}
+
+		// Hors d'une liste, une ligne en retrait n'ouvre pas de bloc à ignorer (```, $$, %%) : elle ouvre du
+		// code en retrait, ou continue le paragraphe en cours.
+		const indented = INDENTED_RE.test(text);
+		const opener = indented && !inList ? null : blockCloser(text);
 		if (opener) {
 			if (flush()) return;
+			if (!indented) inList = false;
 			closer = opener;
 			continue;
 		}
@@ -109,6 +134,10 @@ function forEachBlock(
 			if (flush()) return;
 			continue;
 		}
+
+		// Le code en retrait s'arrête à la première ligne qui ne l'est pas : elle ouvre autre chose. Le
+		// refermer ne visite rien.
+		if (indentedCode) flush();
 
 		// Le soulignement d'un titre setext fait partie du titre : ce n'est pas un trait.
 		if (first && isPlainParagraph(first.text) && SETEXT_RE.test(text)) {
@@ -119,18 +148,27 @@ function forEachBlock(
 
 		if (HR_RE.test(text)) {
 			if (flush()) return;
+			inList = false;
 			onSeparator?.(line);
 			continue;
 		}
 
 		if (HEADING_RE.test(text)) {
 			if (flush()) return;
+			inList = false;
 			first = last = line;
 			if (flush()) return;
 			continue;
 		}
 
-		if (!first) first = line;
+		if (!first) {
+			first = line;
+			indentedCode = indented && !inList;
+			if (!indented) inList = LIST_ITEM_RE.test(text);
+		} else if (LIST_ITEM_RE.test(text)) {
+			// Une liste peut suivre une ligne de texte sans ligne vide entre elles.
+			inList = true;
+		}
 		last = line;
 	}
 	flush();
