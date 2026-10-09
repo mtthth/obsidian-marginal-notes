@@ -70,19 +70,38 @@ export function frontmatterLastLine(doc: Text): number {
 	return 0;
 }
 
+/** Découpage d'un texte : ses blocs étiquetables et ses traits horizontaux, chacun dans l'ordre. */
+interface Scan {
+	blocks: readonly ParagraphBlock[];
+	separators: readonly Line[];
+}
+
 /**
- * Parcourt les blocs étiquetables dans l'ordre du document ; `visit` renvoie true pour s'arrêter.
- * `onSeparator`, s'il est fourni, reçoit en plus les traits horizontaux croisés en chemin.
+ * Découpage de chaque texte, refait seulement quand il change : un doc CM6 est immuable, et une même
+ * version sert à la gouttière, à la minipage, au défilement, au clic… Une longue note n'est ainsi
+ * parcourue qu'une fois par frappe.
+ */
+const scans = new WeakMap<Text, Scan>();
+
+function scan(doc: Text): Scan {
+	let found = scans.get(doc);
+	if (!found) {
+		const blocks: ParagraphBlock[] = [];
+		const separators: Line[] = [];
+		forEachBlock(doc, (block) => blocks.push(block), (line) => separators.push(line));
+		found = { blocks, separators };
+		scans.set(doc, found);
+	}
+	return found;
+}
+
+/**
+ * Parcourt les blocs étiquetables dans l'ordre du document, et les traits horizontaux croisés en chemin.
  *
  * Un bloc qui commence en retrait de quatre colonnes est du code, comme en CommonMark, sauf dans une
  * liste, dont il continue un élément : il n'est pas visité, sans quoi le marqueur s'y lirait en clair.
  */
-function forEachBlock(
-	state: EditorState,
-	visit: (block: ParagraphBlock) => boolean | void,
-	onSeparator?: (line: Line) => void
-) {
-	const doc = state.doc;
+function forEachBlock(doc: Text, visit: (block: ParagraphBlock) => void, onSeparator: (line: Line) => void) {
 	let closer: RegExp | null = null;
 	let first: Line | null = null;
 	let last: Line | null = null;
@@ -95,13 +114,12 @@ function forEachBlock(
 	let inList = false;
 	const frontmatterEnd = frontmatterLastLine(doc);
 
-	const flush = (): boolean => {
-		if (!first || !last) return false;
+	const flush = () => {
+		if (!first || !last) return;
 		const offset = indentedCode ? null : markerOffset(first.text);
-		const block = { from: first.from, to: last.to, firstLine: first, markerFrom: first.from + (offset ?? 0) };
+		if (offset !== null) visit({ from: first.from, to: last.to, firstLine: first, markerFrom: first.from + offset });
 		first = last = null;
 		indentedCode = false;
-		return offset !== null && visit(block) === true;
 	};
 
 	for (let n = frontmatterEnd + 1; n <= doc.lines; n++) {
@@ -124,40 +142,39 @@ function forEachBlock(
 		const indented = INDENTED_RE.test(text);
 		const opener = indented && !inList ? null : blockCloser(text);
 		if (opener) {
-			if (flush()) return;
+			flush();
 			if (!indented) inList = false;
 			closer = opener;
 			continue;
 		}
 
 		if (text.trim() === "") {
-			if (flush()) return;
+			flush();
 			continue;
 		}
 
-		// Le code en retrait s'arrête à la première ligne qui ne l'est pas : elle ouvre autre chose. Le
-		// refermer ne visite rien.
+		// Le code en retrait s'arrête à la première ligne qui ne l'est pas : elle ouvre autre chose.
 		if (indentedCode) flush();
 
 		// Le soulignement d'un titre setext fait partie du titre : ce n'est pas un trait.
 		if (first && isPlainParagraph(first.text) && SETEXT_RE.test(text)) {
 			last = line;
-			if (flush()) return;
+			flush();
 			continue;
 		}
 
 		if (HR_RE.test(text)) {
-			if (flush()) return;
+			flush();
 			inList = false;
-			onSeparator?.(line);
+			onSeparator(line);
 			continue;
 		}
 
 		if (HEADING_RE.test(text)) {
-			if (flush()) return;
+			flush();
 			inList = false;
 			first = last = line;
-			if (flush()) return;
+			flush();
 			continue;
 		}
 
@@ -183,24 +200,26 @@ export function isHeadingBlock(doc: Text, block: ParagraphBlock): boolean {
 
 /** Le bloc étiquetable contenant `pos`, ou null. */
 export function paragraphAt(state: EditorState, pos: number): ParagraphBlock | null {
-	let found: ParagraphBlock | null = null;
-	forEachBlock(state, (block) => {
-		if (block.from > pos) return true;
-		if (pos <= block.to) {
-			found = block;
-			return true;
+	const blocks = allParagraphs(state);
+	// Le dernier bloc qui commence à `pos` ou avant : il le contient, ou `pos` tombe après lui, hors de tout bloc.
+	let low = 0;
+	let high = blocks.length - 1;
+	let found = -1;
+	while (low <= high) {
+		const mid = (low + high) >> 1;
+		if (blocks[mid].from <= pos) {
+			found = mid;
+			low = mid + 1;
+		} else {
+			high = mid - 1;
 		}
-	});
-	return found;
+	}
+	return found >= 0 && pos <= blocks[found].to ? blocks[found] : null;
 }
 
-/** Tous les blocs étiquetables du document, dans l'ordre. */
-export function allParagraphs(state: EditorState): ParagraphBlock[] {
-	const blocks: ParagraphBlock[] = [];
-	forEachBlock(state, (block) => {
-		blocks.push(block);
-	});
-	return blocks;
+/** Tous les blocs étiquetables du document, dans l'ordre : un tableau partagé, à ne pas modifier. */
+export function allParagraphs(state: EditorState): readonly ParagraphBlock[] {
+	return scan(state.doc).blocks;
 }
 
 /** Texte de la première ligne du bloc à partir de l'emplacement du marqueur. */
@@ -295,37 +314,44 @@ export function allSections(state: EditorState): SectionBoundary[] {
 	const { doc } = state;
 	const sections: SectionBoundary[] = [];
 	let pending: SectionBoundary[] = [];
-	forEachBlock(
-		state,
-		(block) => {
-			const pos = textStart(block);
-			const heading = headingOf(doc, block);
-			const titled = heading !== null && (heading.level === 2 || heading.level === 3);
-			// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
-			for (const rule of pending) {
-				if (rule.pos !== block.from) continue;
-				// Un trait juste avant un titre le double : ils se tiendraient à la même hauteur, et le
-				// repère du titre, qui ne tient pas à côté de l'étoile, disparaîtrait.
-				if (titled) sections.splice(sections.indexOf(rule), 1);
-				else rule.pos = pos;
-			}
-			pending = [];
-			if (heading && titled) {
-				const title = shortTitle(doc.sliceString(pos, heading.textEnd));
-				sections.push({ line: block.firstLine, level: heading.level, title, pos });
-			}
-		},
-		(line) => {
-			// La première ligne qui suit le trait, quelle qu'elle soit : un encadré, un tableau ou un bloc
-			// de code, que forEachBlock ne visite pas, ouvrent la section aussi bien qu'un paragraphe.
-			// En fin de note, faute de mieux, le trait renvoie à lui-même.
-			let next = line.number + 1;
-			while (next <= doc.lines && (doc.line(next).text.trim() === "" || HR_RE.test(doc.line(next).text))) next++;
-			const pos = next <= doc.lines ? doc.line(next).from : line.from;
-			const rule: SectionBoundary = { line, level: 0, title: "", pos };
-			sections.push(rule);
-			pending.push(rule);
+	const onBlock = (block: ParagraphBlock) => {
+		const pos = textStart(block);
+		const heading = headingOf(doc, block);
+		const titled = heading !== null && (heading.level === 2 || heading.level === 3);
+		// Un trait suivi d'un paragraphe mène à son texte, après son éventuel marqueur.
+		for (const rule of pending) {
+			if (rule.pos !== block.from) continue;
+			// Un trait juste avant un titre le double : ils se tiendraient à la même hauteur, et le
+			// repère du titre, qui ne tient pas à côté de l'étoile, disparaîtrait.
+			if (titled) sections.splice(sections.indexOf(rule), 1);
+			else rule.pos = pos;
 		}
-	);
+		pending = [];
+		if (heading && titled) {
+			const title = shortTitle(doc.sliceString(pos, heading.textEnd));
+			sections.push({ line: block.firstLine, level: heading.level, title, pos });
+		}
+	};
+
+	const onSeparator = (line: Line) => {
+		// La première ligne qui suit le trait, quelle qu'elle soit : un encadré, un tableau ou un bloc
+		// de code, que forEachBlock ne visite pas, ouvrent la section aussi bien qu'un paragraphe.
+		// En fin de note, faute de mieux, le trait renvoie à lui-même.
+		let next = line.number + 1;
+		while (next <= doc.lines && (doc.line(next).text.trim() === "" || HR_RE.test(doc.line(next).text))) next++;
+		const pos = next <= doc.lines ? doc.line(next).from : line.from;
+		const rule: SectionBoundary = { line, level: 0, title: "", pos };
+		sections.push(rule);
+		pending.push(rule);
+	};
+
+	const { blocks, separators } = scan(doc);
+	// Les blocs et les traits de séparation, dans l'ordre du texte : ils n'ont jamais de ligne en commun.
+	let s = 0;
+	for (const block of blocks) {
+		while (s < separators.length && separators[s].from < block.from) onSeparator(separators[s++]);
+		onBlock(block);
+	}
+	while (s < separators.length) onSeparator(separators[s++]);
 	return sections;
 }

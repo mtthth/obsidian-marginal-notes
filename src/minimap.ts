@@ -305,6 +305,8 @@ class MinimapView {
 	private problemDoc: Text | null = null;
 	private problemKey = "";
 	private problems: ProblemSpan[] = [];
+	/** Paragraphes de texte de la note, dans l'ordre, et le texte et les balisages d'où ils ont été relevés. */
+	private textParagraphs: { doc: Text; key: string; blocks: ParagraphBlock[] } | null = null;
 	/** Bande jaune du paragraphe qui clignote, et ce paragraphe tant que dure son animation. */
 	private flashEl: HTMLElement;
 	private flashed: { from: number; to: number } | null = null;
@@ -1307,15 +1309,31 @@ class MinimapView {
 	 * survol peut commencer à un titre collé à son paragraphe : c'est ce paragraphe qu'il désigne.
 	 */
 	private paragraphRank(range: { from: number; to: number }): number {
-		const { state } = this.view;
-		let rank = 0;
-		for (const block of allParagraphs(state)) {
-			if (block.from > range.to) break;
-			if (!isTextParagraph(state.doc, block, this.plugin.settings.problemZones)) continue;
-			rank++;
-			if (block.to >= range.from) return rank;
+		const blocks = this.syncTextParagraphs();
+		// Le premier qui finit au début du survol ou après, s'il commence avant sa fin.
+		let low = 0;
+		let high = blocks.length;
+		while (low < high) {
+			const mid = (low + high) >> 1;
+			if (blocks[mid].to < range.from) low = mid + 1;
+			else high = mid;
 		}
-		return 0;
+		return low < blocks.length && blocks[low].from <= range.to ? low + 1 : 0;
+	}
+
+	/**
+	 * Les paragraphes de texte de la note, relevés seulement quand son texte ou la liste des balisages a
+	 * changé : d'un survol à l'autre, la note n'est pas reparcourue.
+	 */
+	private syncTextParagraphs(): ParagraphBlock[] {
+		const { state } = this.view;
+		const { problemZones } = this.plugin.settings;
+		const key = problemZonesKey(problemZones);
+		if (this.textParagraphs?.doc !== state.doc || this.textParagraphs.key !== key) {
+			const blocks = allParagraphs(state).filter((block) => isTextParagraph(state.doc, block, problemZones));
+			this.textParagraphs = { doc: state.doc, key, blocks };
+		}
+		return this.textParagraphs.blocks;
 	}
 
 	/**

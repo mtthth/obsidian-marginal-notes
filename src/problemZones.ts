@@ -69,6 +69,18 @@ function escapeRegExp(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Le scanner de la dernière liste de balisages, et sa clé : isTextParagraph le demande à chaque ligne d'un
+ * paragraphe, et il ne change qu'avec les réglages.
+ */
+let compiled: { key: string; scanner: Scanner } | null = null;
+
+function scannerFor(zones: ProblemZone[]): Scanner {
+	const key = problemZonesKey(zones);
+	if (compiled?.key !== key) compiled = { key, scanner: compile(zones) };
+	return compiled.scanner;
+}
+
 function compile(zones: ProblemZone[]): Scanner {
 	const compiled: CompiledZone[] = [];
 	zones.forEach((zone, index) => {
@@ -144,8 +156,17 @@ function scanLine(text: string, scanner: Scanner): ProblemSpan[] {
 
 /** Les zones d'une ligne, relatives à son début : voir `scanLine`. */
 export function problemSpansOfLine(text: string, zones: ProblemZone[]): ProblemSpan[] {
-	return scanLine(text, compile(zones));
+	return scanLine(text, scannerFor(zones));
 }
+
+const NO_SPANS: readonly ProblemSpan[] = [];
+
+/**
+ * Zones de chaque ligne lue au dernier relevé, par texte de la ligne, avec le scanner qui les a trouvées.
+ * D'une frappe à l'autre, presque toutes les lignes d'une note restent les mêmes : seules les autres sont
+ * relues. Les zones y sont relatives au début de la ligne.
+ */
+let lineSpans: { scanner: Scanner; spans: Map<string, readonly ProblemSpan[]> } | null = null;
 
 /**
  * Les zones à reprendre de la note, dans l'ordre, en positions du texte. Comme pour les paragraphes,
@@ -153,9 +174,12 @@ export function problemSpansOfLine(text: string, zones: ProblemZone[]): ProblemS
  * contiennent n'est pas du texte.
  */
 export function problemSpans(doc: Text, zones: ProblemZone[]): ProblemSpan[] {
-	const scanner = compile(zones);
+	const scanner = scannerFor(zones);
 	const spans: ProblemSpan[] = [];
 	if (scanner.zones.length === 0) return spans;
+	const known = lineSpans?.scanner === scanner ? lineSpans.spans : null;
+	// Seules les lignes de ce texte-ci sont gardées pour la fois suivante.
+	const kept = new Map<string, readonly ProblemSpan[]>();
 	let closer: RegExp | null = null;
 	for (let n = frontmatterLastLine(doc) + 1; n <= doc.lines; n++) {
 		const line = doc.line(n);
@@ -168,10 +192,17 @@ export function problemSpans(doc: Text, zones: ProblemZone[]): ProblemSpan[] {
 			closer = opener;
 			continue;
 		}
-		for (const span of scanLine(line.text, scanner)) {
+		let found = kept.get(line.text) ?? known?.get(line.text);
+		if (!found) {
+			const scanned = scanLine(line.text, scanner);
+			found = scanned.length > 0 ? scanned : NO_SPANS;
+		}
+		kept.set(line.text, found);
+		for (const span of found) {
 			spans.push({ from: line.from + span.from, to: line.from + span.to, zone: span.zone });
 		}
 	}
+	lineSpans = { scanner, spans: kept };
 	return spans;
 }
 
