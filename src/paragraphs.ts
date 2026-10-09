@@ -1,7 +1,7 @@
 // Marginal Notes, par Matthieu Thomas (cidrolin). Licence MIT.
 
 import { EditorState, Line, Text } from "@codemirror/state";
-import { parseMarker, ParagraphTag } from "./model";
+import { hasLabel, parseMarker, ParagraphTag } from "./model";
 
 export interface ParagraphBlock {
 	from: number;
@@ -190,12 +190,12 @@ export interface TaggedParagraph {
 	matchLength: number;
 }
 
-/** Les blocs du document qui portent une étiquette, dans l'ordre. */
+/** Les blocs du document qui portent une étiquette ou une corne (pas un marqueur vide), dans l'ordre. */
 export function taggedParagraphs(state: EditorState): TaggedParagraph[] {
 	const tagged: TaggedParagraph[] = [];
 	for (const block of allParagraphs(state)) {
 		const parsed = parseMarker(markerText(block));
-		if (parsed) tagged.push({ block, ...parsed });
+		if (parsed && (parsed.tag.corner || hasLabel(parsed.tag))) tagged.push({ block, ...parsed });
 	}
 	return tagged;
 }

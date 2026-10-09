@@ -40,6 +40,11 @@ export function sanitizeLabel(text: string): string {
 	return text.replace(/%/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Le marqueur en tête de `lineText`, s'il y en a un. Un marqueur vide (`%%mn t=%%`, qu'écrivaient les
+ * versions jusqu'à 0.1.29 pour un texte fait d'espaces) est reconnu, avec une étiquette vide : il n'est
+ * ni dessiné ni compté, mais la prochaine écriture le remplace au lieu d'en empiler un autre devant.
+ */
 export function parseMarker(lineText: string): { tag: ParagraphTag; matchLength: number } | null {
 	const m = MARKER_RE.exec(lineText);
 	if (!m) return null;
@@ -50,15 +55,17 @@ export function parseMarker(lineText: string): { tag: ParagraphTag; matchLength:
 		const text = m[3].trim();
 		if (text) tag.text = text;
 	}
-	if (!tag.corner && !hasLabel(tag)) return null;
 	return { tag, matchLength: m[0].length };
 }
 
 export function encodeMarker(tag: ParagraphTag): string {
-	if (!tag.corner && !hasLabel(tag)) return "";
+	// Le texte nettoyé d'abord : fait d'espaces ou de « % », il n'en reste rien, et il ne doit pas
+	// suffire à écrire un marqueur.
+	const text = tag.text ? sanitizeLabel(tag.text) : "";
+	if (!tag.corner && !tag.color && !text) return "";
 	let inner = "mn";
 	if (tag.corner) inner += " corne";
 	if (tag.color) inner += ` c=${tag.color}`;
-	if (tag.text) inner += ` t=${sanitizeLabel(tag.text)}`;
+	if (text) inner += ` t=${text}`;
 	return `%%${inner}%% `;
 }
