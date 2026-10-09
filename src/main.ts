@@ -9,7 +9,7 @@ import { flashField } from "./flash";
 import { createCenterFlash } from "./centerFlash";
 import { searchHighlighter } from "./search";
 import { wordEcho } from "./wordEcho";
-import { markerText, paragraphAt } from "./paragraphs";
+import { markerText, paragraphAt, type ParagraphBlock } from "./paragraphs";
 import { openTagMenu } from "./menu";
 import { centerOnClick, jumpToTag } from "./navigation";
 import { createReadingPostProcessor } from "./reading";
@@ -21,6 +21,10 @@ import { readProblemZones } from "./problemZones";
 // `editor.cm` est l'accès de fait stable utilisé par l'écosystème des plugins pour l'obtenir.
 function getCmView(editor: Editor): EditorView | undefined {
 	return (editor as unknown as { cm?: EditorView }).cm;
+}
+
+function noParagraphNotice() {
+	new Notice("Placez le curseur dans un paragraphe.");
 }
 
 export default class MarginalNotesPlugin extends Plugin {
@@ -62,7 +66,9 @@ export default class MarginalNotesPlugin extends Plugin {
 			name: "Étiqueter le paragraphe courant",
 			editorCallback: (editor: Editor) => {
 				const cmView = getCmView(editor);
-				if (cmView) this.tagParagraphAt(cmView, cmView.state.selection.main.head);
+				if (!cmView) return;
+				const head = cmView.state.selection.main.head;
+				this.tagParagraph(cmView, paragraphAt(cmView.state, head), head);
 			},
 		});
 
@@ -91,43 +97,34 @@ export default class MarginalNotesPlugin extends Plugin {
 				const pos =
 					(this.lastContextMenuPos && cmView.posAtCoords(this.lastContextMenuPos)) ??
 					cmView.state.selection.main.head;
+				// Le paragraphe visé, relevé à l'ouverture du menu : le texte peut changer avant qu'on y
+				// choisisse, et l'écriture le retrouvera alors (voir tagEdit.ts).
+				const block = paragraphAt(cmView.state, pos);
 				menu.addItem((item) => {
 					item
 						.setTitle("Étiqueter le paragraphe courant")
 						.setIcon("tag")
-						.onClick(() => this.tagParagraphAt(cmView, pos));
+						.onClick(() => this.tagParagraph(cmView, block, pos));
 				});
 				// Le titre dit ce que fera le clic : le paragraphe visé est-il déjà corné ?
-				const block = paragraphAt(cmView.state, pos);
+				// Corner, c'est poser le même repère que le clic droit dans la minipage.
 				const cornered = block ? parseMarker(markerText(block))?.tag.corner : false;
 				menu.addItem((item) => {
 					item
 						.setTitle(cornered ? "Retirer la corne" : "Corner la page")
 						.setIcon("sticky-note")
-						.onClick(() => this.toggleCornerAt(cmView, pos));
+						.onClick(() => (block ? toggleCorner(cmView, block) : noParagraphNotice()));
 				});
 			})
 		);
 	}
 
-	/** Paragraphe à la position, ou null après avoir prévenu qu'il n'y en a pas. */
-	private paragraphOrNotice(cmView: EditorView, pos: number) {
-		const block = paragraphAt(cmView.state, pos);
-		if (!block) new Notice("Placez le curseur dans un paragraphe.");
-		return block;
-	}
+	/** Ouvre le menu d'étiquetage du paragraphe, sous la position `pos` ; prévient s'il n'y a pas de paragraphe. */
+	private tagParagraph(cmView: EditorView, block: ParagraphBlock | null, pos: number) {
+		if (!block) return noParagraphNotice();
 
-	/** Corne le paragraphe, ou retire sa corne : le même repère que le clic droit dans la minipage. */
-	private toggleCornerAt(cmView: EditorView, pos: number) {
-		const block = this.paragraphOrNotice(cmView, pos);
-		if (block) toggleCorner(cmView, block);
-	}
-
-	private tagParagraphAt(cmView: EditorView, pos: number) {
-		const block = this.paragraphOrNotice(cmView, pos);
-		if (!block) return;
-
-		const coords = cmView.coordsAtPos(pos);
+		// La position a pu être relevée sur un texte plus long qu'il ne l'est devenu.
+		const coords = cmView.coordsAtPos(Math.min(pos, cmView.state.doc.length));
 		const rect = cmView.dom.getBoundingClientRect();
 		const fakeEvent = {
 			clientX: coords ? coords.left : rect.left + 40,
