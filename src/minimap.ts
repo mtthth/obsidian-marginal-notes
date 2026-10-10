@@ -430,8 +430,9 @@ class MinimapView {
 
 	private hide() {
 		this.scale = 0;
+		// Plus de survol : l'aperçu est masqué et son rendu, affiché ou en cours, abandonné.
 		this.hover = null;
-		this.preview.hide();
+		this.updatePreview();
 		this.reserveSpace(false);
 		this.dom.hide();
 	}
@@ -1276,12 +1277,15 @@ class MinimapView {
 			// Masqué, le rendu n'a plus à vivre (un embed qui se met à jour, un bloc d'un autre plugin…) :
 			// ses composants sont déchargés. Le prochain survol en refait un.
 			this.replacePreviewOwner(null);
+			this.previewLine.textContent = "";
 			this.previewText.empty();
 			return preview.hide();
 		}
 		const text = textWithoutMarker(view.state.doc, hover.from, Math.min(hover.to, hover.from + PREVIEW_MAX_CHARS));
 		const key = `${hover.from}:${text}`;
-		if (key === this.previewKey) return this.layoutPreview();
+		// Rien à remettre en place tant qu'aucun rendu n'est affiché : son rendu est encore en cours (ou a échoué),
+		// et le cadre, vidé quand l'aperçu a été masqué, n'a pas à reparaître vide.
+		if (key === this.previewKey) return this.previewShown ? this.layoutPreview() : undefined;
 		this.previewKey = key;
 		const render = ++this.previewRender;
 		const rank = this.paragraphRank(hover);
